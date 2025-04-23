@@ -2,7 +2,7 @@ import fitz  # PyMuPDF
 import re
 import csv
 
-def extract_multilevel_from_cropped_pdf(input_pdf, output_csv, top_crop=50, bottom_crop=50):
+def extract_multilevel_from_cropped_pdf(input_pdf, output_csv, top_crop=55, bottom_crop=55):
     doc = fitz.open(input_pdf)
 
     with open(output_csv, 'w', newline='', encoding='utf-8-sig') as csvfile:
@@ -76,8 +76,8 @@ def clean_content(content_lines):
 
 # ======== 主程序入口 =========
 if __name__ == "__main__":
-    input_pdf = r"F:\Fusion\.py\input.pdf"
-    output_csv = r"F:\Fusion\.py\structured_output.csv"
+    input_pdf = r"D:\Files\xFusion\Tu.pdf"
+    output_csv = r"D:\Files\xFusion\Tu_structured_output_2.csv"
 
     try:
         extract_multilevel_from_cropped_pdf(input_pdf, output_csv)
