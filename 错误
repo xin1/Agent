@@ -11,3 +11,6 @@ docker run -d -p 8080:8000 --name pdf_tool_api pdf-api-tool
 Unable to find image 'pdf_api_tool:latest' locally
 docker: Error response from daemon: failed to resolve reference "docker.io/library/pdf_api_tool:latest": unexpected status from HEAD request to http://hub-mirror.c.163.com/v2/library/pdf_api_tool/manifests/latest?ns=docker.io: 504 Gateway Time-out
 
+* Serving Flask app 'app'
+ * Debug mode: off
+以一种访问权限不允许的方式做了一个访问套接字的尝试。
