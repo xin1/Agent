@@ -7,5 +7,7 @@ Error: Head "http://0.0.0.0:11434/": read tcp 10.53.2.36:53117->172.16.67.168:80
 set NO_PROXY=localhost,127.0.0.1
 ollama create qwq-32b -f  C:\Users\Administrator\Downloads\Modelfile  
 
-docker run -d -p 8080:8000 --name pdf_tool_api pdf-api-tool
+docker run -d -p 8080:8000 --name pdf_tool_api pdf-api-tool  
+Unable to find image 'pdf_api_tool:latest' locally
+docker: Error response from daemon: failed to resolve reference "docker.io/library/pdf_api_tool:latest": unexpected status from HEAD request to http://hub-mirror.c.163.com/v2/library/pdf_api_tool/manifests/latest?ns=docker.io: 504 Gateway Time-out
 
