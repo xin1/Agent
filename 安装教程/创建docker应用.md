@@ -1,43 +1,46 @@
-好的，这里给出**完整详细的代码和部署流程**，你将得到一个可以通过 **Docker 部署** 的 Gradio 网页版工具，用于：
+**Docker 部署一个稳定、纯后端的 PDF 裁剪与结构化提取工具**
 
-- ✅ 上传 PDF 文件  
-- ✅ 输入裁剪上/下边距（cm）
-- ✅ 自动裁剪 PDF、提取结构（标题 + 内容）到 CSV  
-- ✅ 生成并下载两个文件：裁剪后的 PDF + 提取结构的 CSV
+### ✅ 后端 API 工具（推荐用 [FastAPI]）
+更轻量、部署稳定、支持并发调用，适合局域网/Web 服务：
 
 ---
 
-## 📁 目录结构建议
+## 🧩 整体功能需求总结
 
-你可以在任意位置创建一个文件夹，例如：
+- 接收 PDF 文件和裁剪参数（上/下边距）
+- 自动裁剪页眉/页脚并提取结构化标题+内容
+- 输出两个文件：裁剪后的 PDF + CSV（结构化）
 
-```bash
-F:\Fusion\pdf_tool_web
+---
+
+## 🧱 项目结构
+
+你可以创建一个目录，比如 `F:\Fusion\pdf_api_tool`，结构如下：
+
 ```
-
-然后把以下文件创建进去：
-
-```
-pdf_tool_web/
-├── app.py                # 主程序（Gradio Web 接口）
-├── pdf_processor.py      # 核心 PDF 裁剪 + 提取逻辑
-├── requirements.txt      # Python 依赖包
-└── Dockerfile            # Docker 构建脚本
+pdf_api_tool/
+├── app.py                 # FastAPI 应用入口
+├── pdf_processor.py       # PDF 处理逻辑
+├── requirements.txt       # 依赖
+├── Dockerfile             # Docker 构建文件
+└── outputs/               # 保存生成的文件
 ```
 
 ---
 
-## 🧠 核心处理逻辑 `pdf_processor.py`
+## 📄 `pdf_processor.py`
+
+（逻辑与你之前的相似）
 
 ```python
-import fitz  # PyMuPDF
+import fitz
 import re
 import os
 import uuid
 import pandas as pd
 
 def cm_to_px(cm):
-    return int(cm * 28.35)  # 1 cm ≈ 28.35 px
+    return int(cm * 28.35)
 
 def is_title(line):
     return bool(re.match(r'^\d+(\.\d+){0,2}(\s+|$)', line.strip())) and len(line.strip()) <= 50
@@ -66,7 +69,6 @@ def process_pdf(file_path, top_cm=2.5, bottom_cm=2.5):
         new_page = new_doc.new_page(width=rect.width, height=rect.height - top_px - bottom_px)
         text = page.get_text(clip=crop_rect)
 
-        # 提取结构化内容
         for line in text.split('\n'):
             line = line.strip()
             if not line:
@@ -82,53 +84,53 @@ def process_pdf(file_path, top_cm=2.5, bottom_cm=2.5):
     if current_title:
         data.append([current_title, "\n".join(clean_content(current_content))])
 
-    # 保存文件
-    unique_id = str(uuid.uuid4())[:8]
-    base_dir = "outputs"
-    os.makedirs(base_dir, exist_ok=True)
+    uid = str(uuid.uuid4())[:8]
+    os.makedirs("outputs", exist_ok=True)
+    out_pdf = f"outputs/cropped_{uid}.pdf"
+    out_csv = f"outputs/structured_{uid}.csv"
 
-    cropped_pdf = os.path.join(base_dir, f"cropped_{unique_id}.pdf")
-    csv_file = os.path.join(base_dir, f"output_{unique_id}.csv")
-
-    new_doc.save(cropped_pdf)
+    new_doc.save(out_pdf)
     new_doc.close()
 
-    df = pd.DataFrame(data, columns=["标题", "内容"])
-    df.to_csv(csv_file, index=False, encoding='utf-8-sig')
+    pd.DataFrame(data, columns=["标题", "内容"]).to_csv(out_csv, index=False, encoding='utf-8-sig')
 
-    return cropped_pdf, csv_file
+    return out_pdf, out_csv
 ```
 
 ---
 
-## 🌐 Gradio 网页前端 `app.py`
+## 🚀 `app.py`（FastAPI 服务）
 
 ```python
-import gradio as gr
+from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.responses import FileResponse
 from pdf_processor import process_pdf
+import shutil
+import os
 
-def process(file, top_cm, bottom_cm):
-    cropped_pdf, csv_file = process_pdf(file.name, top_cm, bottom_cm)
-    return cropped_pdf, csv_file
+app = FastAPI()
 
-with gr.Blocks() as demo:
-    gr.Markdown("## 📄 PDF 自动裁剪 + 标题内容提取工具")
+@app.post("/process/")
+async def process_pdf_endpoint(
+    file: UploadFile = File(...),
+    top_cm: float = Form(2.5),
+    bottom_cm: float = Form(2.5)
+):
+    temp_path = f"temp_{file.filename}"
+    with open(temp_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
 
-    with gr.Row():
-        file_input = gr.File(label="上传 PDF 文件", file_types=[".pdf"])
-        top_crop = gr.Number(label="上裁剪距离 (cm)", value=2.5)
-        bottom_crop = gr.Number(label="下裁剪距离 (cm)", value=2.5)
+    cropped_pdf, csv_file = process_pdf(temp_path, top_cm, bottom_cm)
+    os.remove(temp_path)
 
-    btn = gr.Button("处理 PDF")
+    return {
+        "pdf": cropped_pdf,
+        "csv": csv_file
+    }
 
-    with gr.Row():
-        out_pdf = gr.File(label="裁剪后的 PDF")
-        out_csv = gr.File(label="结构化 CSV")
-
-    btn.click(fn=process, inputs=[file_input, top_crop, bottom_crop], outputs=[out_pdf, out_csv])
-
-demo.queue()
-demo.launch(server_name="0.0.0.0", server_port=7860)
+@app.get("/download/")
+def download_file(path: str):
+    return FileResponse(path, filename=os.path.basename(path))
 ```
 
 ---
@@ -136,14 +138,15 @@ demo.launch(server_name="0.0.0.0", server_port=7860)
 ## 📦 `requirements.txt`
 
 ```txt
-gradio==4.25.0
+fastapi
+uvicorn
 pymupdf
 pandas
 ```
 
 ---
 
-## 🐳 `Dockerfile`
+## 🐳 Dockerfile
 
 ```Dockerfile
 FROM python:3.10-slim
@@ -154,49 +157,44 @@ COPY . .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-EXPOSE 7860
+EXPOSE 8000
 
-CMD ["python", "app.py"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 ---
 
-## 🚀 构建并运行 Docker
-
-进入目录（例如命令行输入）：
+## 🧪 构建 & 运行（命令行操作）
 
 ```bash
-cd F:\Fusion\pdf_tool_web
-```
+cd F:\Fusion\pdf_api_tool
 
-### 构建镜像
+# 构建镜像
+docker build -t pdf-api-tool .
 
-```bash
-docker build -t pdf-tool .
-```
-
-### 启动容器
-
-```bash
-docker run -d -p 7860:7860 --name pdf_tool_container pdf-tool
+# 运行容器（挂载 outputs 目录）
+docker run -d -p 8000:8000 --name pdf_tool_api pdf-api-tool
 ```
 
 ---
 
-## ✅ 使用方式
+## 🌐 使用方式
 
-浏览器打开：
+你可以用 Postman、curl 或简单 Python 脚本访问这个服务：
 
+### 上传并处理：
 ```
-http://localhost:7860/
+POST http://localhost:8000/process/
+FormData:
+- file: 选择你的 PDF
+- top_cm: 2.5
+- bottom_cm: 2.5
 ```
 
-或在公司内网使用你本机的 IP 地址，例如：
-
+### 下载：
 ```
-http://10.53.4.65:7860/
+GET http://localhost:8000/download/?path=outputs/cropped_XXXX.pdf
 ```
 
 ---
 
-如果你希望我直接打包一份 `.zip` 的 Docker 项目发你使用，也可以说一声，我可以帮你打整套资源！需要我继续帮你构建吗？
