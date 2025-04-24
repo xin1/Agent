@@ -7,7 +7,7 @@ import gradio as gr
 
 def extract_pdf(input_pdf, top_cm, bottom_cm):
     try:
-        # 创建临时目录
+        # 创建临时工作目录
         temp_dir = tempfile.mkdtemp()
         pdf_path = os.path.join(temp_dir, "input.pdf")
         input_pdf.save(pdf_path)
@@ -87,10 +87,10 @@ def clean_content(lines):
 
 
 with gr.Blocks() as demo:
-    gr.Markdown("### 📄 PDF页眉/页尾剪裁 + 标题内容提取工具")
+    gr.Markdown("### 📄 PDF页眉/页尾剪裁 + 标题内容提取工具（支持并发）")
 
     with gr.Row():
-        pdf_input = gr.File(label="上传PDF", file_types=[".pdf"])
+        pdf_input = gr.File(label="上传 PDF 文件", file_types=[".pdf"])
         top_cm = gr.Number(value=2, label="页眉裁剪（cm）")
         bottom_cm = gr.Number(value=2, label="页脚裁剪（cm）")
 
@@ -103,4 +103,5 @@ with gr.Blocks() as demo:
                   inputs=[pdf_input, top_cm, bottom_cm],
                   outputs=[csv_output, pdf_output])
 
-demo.queue(concurrency_count=1).launch()
+# ✅ 支持最多5个用户同时处理任务
+demo.queue(concurrency_count=5).launch()
