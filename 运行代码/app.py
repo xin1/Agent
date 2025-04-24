@@ -105,3 +105,4 @@ with gr.Blocks() as demo:
 
 # ✅ 支持最多5个用户同时处理任务
 demo.queue(concurrency_count=5).launch()
+# demo.queue(concurrency_count=5).launch(server_name="0.0.0.0", server_port=7860)
