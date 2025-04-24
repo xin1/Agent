@@ -1,1 +1,4 @@
-docker: Error response from daemon: Ports are not available: exposing port TCP 0.0.0.0:8000 -> 127.0.0.1:0: listen tcp 0.0.0.0:8000: bind: An attempt was made to access a socket in a way forbidden by its access permissions.
+docker: Error response from daemon: Ports are not available: exposing port TCP 0.0.0.0:8000 -> 127.0.0.1:0: listen tcp 0.0.0.0:8000: bind: An attempt was made to access a socket in a way forbidden by its access permissions.  
+
+ ollama create qwq-32b -f  C:\Users\Administrator\Downloads\Modelfile
+Error: Head "http://0.0.0.0:11434/": read tcp 10.53.2.36:53117->172.16.67.168:8080: wsarecv: A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond.
