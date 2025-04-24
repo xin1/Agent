@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF 剪裁工具</title>
+</head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 50px auto;">
+  <h2>📄 PDF 裁剪与提取工具</h2>
+
+  <form id="uploadForm">
+    <label>上传 PDF 文件：</label><br>
+    <input type="file" name="file" accept="application/pdf" required><br><br>
+
+    <label>删除顶部（厘米）：</label><br>
+    <input type="number" step="0.1" name="top_cm" value="2.5" required><br><br>
+
+    <label>删除底部（厘米）：</label><br>
+    <input type="number" step="0.1" name="bottom_cm" value="2.5" required><br><br>
+
+    <button type="submit">开始处理</button>
+  </form>
+
+  <div id="result" style="margin-top: 30px;"></div>
+
+  <script>
+    const form = document.getElementById('uploadForm');
+    const resultDiv = document.getElementById('result');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      resultDiv.innerHTML = "处理中，请稍候...";
+
+      const formData = new FormData(form);
+
+      try {
+        const res = await fetch("http://localhost:8000/process/", {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await res.json();
+
+        resultDiv.innerHTML = `
+          ✅ 处理完成！<br>
+          <a href="${data.cropped_pdf}" download>📥 下载剪裁后 PDF</a><br>
+          <a href="${data.csv_file}" download>📥 下载结构化 CSV</a>
+        `;
+      } catch (err) {
+        resultDiv.innerHTML = "❌ 请求失败，请确认服务已启动或检查网络连接。";
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>
