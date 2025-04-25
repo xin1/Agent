@@ -206,88 +206,85 @@ FastAPI + Docker 部署，**端口是 8090**：
 
 ### ✅ `index.html`
 
-```html
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
   <meta charset="UTF-8">
-  <title>PDF 剪裁工具</title>
+  <title>PDF 裁剪工具</title>
   <style>
     body {
       font-family: sans-serif;
-      padding: 20px;
+      max-width: 600px;
+      margin: 40px auto;
     }
-    input, button {
-      margin: 10px 0;
-      padding: 8px;
+    label, input {
+      display: block;
+      margin-top: 10px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
     }
   </style>
 </head>
 <body>
-  <h1>PDF 剪裁与结构化提取工具</h1>
-
+  <h1>PDF 裁剪并提取工具</h1>
   <form id="uploadForm">
-    <label>选择 PDF 文件：
-      <input type="file" id="pdfFile" accept=".pdf" required />
-    </label><br>
-
-    <label>上边距 (cm)：
-      <input type="number" id="topCm" value="2.5" step="0.1" required />
-    </label><br>
-
-    <label>下边距 (cm)：
-      <input type="number" id="bottomCm" value="2.5" step="0.1" required />
-    </label><br>
-
-    <button type="submit">上传并处理</button>
+    <label>上传 PDF 文件：
+      <input type="file" name="file" accept=".pdf" required>
+    </label>
+    <label>上边距裁剪（cm）：
+      <input type="number" name="top_cm" step="0.1" value="2.5" required>
+    </label>
+    <label>下边距裁剪（cm）：
+      <input type="number" name="bottom_cm" step="0.1" value="2.5" required>
+    </label>
+    <button type="submit">提交处理</button>
   </form>
 
-  <div id="result" style="margin-top:20px;"></div>
+  <p id="status"></p>
 
   <script>
-    const form = document.getElementById('uploadForm');
-    const resultDiv = document.getElementById('result');
-
-    form.addEventListener('submit', async (e) => {
+    document.getElementById('uploadForm').addEventListener('submit', async function (e) {
       e.preventDefault();
 
-      const file = document.getElementById('pdfFile').files[0];
-      const top_cm = document.getElementById('topCm').value;
-      const bottom_cm = document.getElementById('bottomCm').value;
-
-      if (!file) return alert("请选择 PDF 文件");
-
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("top_cm", top_cm);
-      formData.append("bottom_cm", bottom_cm);
-
-      resultDiv.innerHTML = "⏳ 正在处理，请稍等...";
+      const form = e.target;
+      const formData = new FormData(form);
+      const status = document.getElementById('status');
+      status.textContent = '⏳ 正在处理，请稍候...';
 
       try {
-        const response = await fetch("http://localhost:8090/process/", {
-          method: "POST",
+        const response = await fetch('http://localhost:8000/process/', {
+          method: 'POST',
           body: formData
         });
 
-        const data = await response.json();
-
-        if (response.ok) {
-          resultDiv.innerHTML = `
-            ✅ 处理完成：<br>
-            <a href="http://localhost:8090/download/?path=${encodeURIComponent(data.pdf)}" target="_blank">下载裁剪后的 PDF</a><br>
-            <a href="http://localhost:8090/download/?path=${encodeURIComponent(data.csv)}" target="_blank">下载结构化 CSV</a>
-          `;
-        } else {
-          resultDiv.innerHTML = "❌ 出错：" + JSON.stringify(data);
+        if (!response.ok) {
+          throw new Error('处理失败，可能服务未启动或文件不合法');
         }
+
+        const result = await response.json();
+        const download = (url, name) => {
+          const a = document.createElement('a');
+          a.href = 'http://localhost:8000/download/?path=' + encodeURIComponent(url);
+          a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        };
+
+        download(result.pdf, '裁剪后.pdf');
+        download(result.csv, '结构化内容.csv');
+        status.textContent = '✅ 成功处理并下载文件';
       } catch (err) {
-        resultDiv.innerHTML = "❌ 网络错误：" + err.message;
+        console.error(err);
+        status.textContent = '❌ 处理失败：' + err.message;
       }
     });
   </script>
 </body>
 </html>
+
 ```
 
 ---
