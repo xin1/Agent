@@ -1,3 +1,5 @@
+# pip install pymupdf pdfplumber tkinter
+# pip install pyinstaller
 import fitz  # PyMuPDF
 import re
 import csv
