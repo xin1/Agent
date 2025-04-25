@@ -30,14 +30,15 @@
 
 ### 目录结构
 ```
-project/
-├── app/
-│   ├── app.py               # FastAPI 后端
-│   ├── pdf_processor.py     # PDF 规则处理代码
-│   └── static/
-│       └── index.html       # Flask 前端页面
-├── Dockerfile
-├── requirements.txt
+pdf_tool/
+├── app.py                  # FastAPI 应用主程序
+├── pdf_processor.py        # PDF 剪裁+结构提取逻辑
+├── templates/
+│   └── index.html          # 静态网页（上传文件和下载结果）
+├── static/                 # 静态资源（可留空）
+├── requirements.txt        # Python 依赖
+├── Dockerfile              # Docker 镜像构建配置
+└── output/                 # 生成文件保存目录（Docker 会挂载）
 ```
 
 ### Dockerfile 示例
