@@ -205,7 +205,7 @@ FastAPI + Docker 部署，**端口是 8090**：
 ---
 
 ### ✅ `index.html`
-
+```html
 <!DOCTYPE html>
 <html lang="zh">
 <head>
