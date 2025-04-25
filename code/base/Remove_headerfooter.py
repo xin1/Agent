@@ -12,8 +12,8 @@ doc = fitz.open(input_path)
 for page in doc:
     rect = page.rect
     crop_rect = fitz.Rect(
-        rect.x0, rect.y0 + 60,  # 去掉顶部 50pt
-        rect.x1, rect.y1 - 60   # 去掉底部 50pt
+        rect.x0, rect.y0 + 60,  # 去掉顶部 60pt
+        rect.x1, rect.y1 - 60   # 去掉底部 60pt
     )
     page.set_cropbox(crop_rect)
 
