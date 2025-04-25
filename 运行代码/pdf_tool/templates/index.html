@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PDF 剪裁工具</title>
+</head>
+<body>
+    <h2>上传 PDF 文件并设置裁剪距离</h2>
+    <form action="/process/" enctype="multipart/form-data" method="post">
+        <label>PDF 文件：</label>
+        <input type="file" name="file" required><br><br>
+        <label>页眉剪裁（cm）：</label>
+        <input type="number" name="top_cm" step="0.1" value="2.5"><br><br>
+        <label>页尾剪裁（cm）：</label>
+        <input type="number" name="bottom_cm" step="0.1" value="2.5"><br><br>
+        <button type="submit">处理</button>
+    </form>
+
+    {% if pdf_path %}
+        <h3>处理完成：</h3>
+        <a href="/download/?path={{ pdf_path }}">下载裁剪后 PDF</a><br>
+        <a href="/download/?path={{ csv_path }}">下载结构化 CSV</a>
+    {% endif %}
+</body>
+</html>
