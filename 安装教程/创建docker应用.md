@@ -200,3 +200,102 @@ GET http://localhost:8000/download/?path=outputs/cropped_XXXX.pdf
 
 ---
 
+FastAPI + Docker 部署，**端口是 8090**：
+
+---
+
+### ✅ `index.html`
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF 剪裁工具</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    input, button {
+      margin: 10px 0;
+      padding: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>PDF 剪裁与结构化提取工具</h1>
+
+  <form id="uploadForm">
+    <label>选择 PDF 文件：
+      <input type="file" id="pdfFile" accept=".pdf" required />
+    </label><br>
+
+    <label>上边距 (cm)：
+      <input type="number" id="topCm" value="2.5" step="0.1" required />
+    </label><br>
+
+    <label>下边距 (cm)：
+      <input type="number" id="bottomCm" value="2.5" step="0.1" required />
+    </label><br>
+
+    <button type="submit">上传并处理</button>
+  </form>
+
+  <div id="result" style="margin-top:20px;"></div>
+
+  <script>
+    const form = document.getElementById('uploadForm');
+    const resultDiv = document.getElementById('result');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const file = document.getElementById('pdfFile').files[0];
+      const top_cm = document.getElementById('topCm').value;
+      const bottom_cm = document.getElementById('bottomCm').value;
+
+      if (!file) return alert("请选择 PDF 文件");
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("top_cm", top_cm);
+      formData.append("bottom_cm", bottom_cm);
+
+      resultDiv.innerHTML = "⏳ 正在处理，请稍等...";
+
+      try {
+        const response = await fetch("http://localhost:8090/process/", {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          resultDiv.innerHTML = `
+            ✅ 处理完成：<br>
+            <a href="http://localhost:8090/download/?path=${encodeURIComponent(data.pdf)}" target="_blank">下载裁剪后的 PDF</a><br>
+            <a href="http://localhost:8090/download/?path=${encodeURIComponent(data.csv)}" target="_blank">下载结构化 CSV</a>
+          `;
+        } else {
+          resultDiv.innerHTML = "❌ 出错：" + JSON.stringify(data);
+        }
+      } catch (err) {
+        resultDiv.innerHTML = "❌ 网络错误：" + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
+```
+
+---
+
+### 📌 说明：
+
+- HTML 会上传 PDF、输入上下边距，提交给 `/process/` 接口。
+- 后端返回裁剪后的 PDF 和 CSV 路径，再用 `/download/` 实现点击下载。
+- `localhost:8090` 是你部署映射的端口，请根据实际端口替换。
+
+---
