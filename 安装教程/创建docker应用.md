@@ -171,8 +171,6 @@ cd F:\Fusion\pdf_api_tool
 
 # 构建镜像
 docker build -t pdf-api-tool .
-docker build --build-arg HTTP_PROXY=http://proxy.example.com:8080 --build-arg HTTPS_PROXY=http://proxy.example.com:8080 .
-
 
 # 运行容器（挂载 outputs 目录）
 docker run -d -p 8000:8000 --name pdf_tool_api pdf-api-tool
