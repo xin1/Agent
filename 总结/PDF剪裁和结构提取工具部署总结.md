@@ -43,11 +43,16 @@ pdf_tool/
 
 ### Dockerfile 示例
 ```dockerfile
-FROM python:3.10-slim
+FROM python:3.10
 WORKDIR /app
-COPY requirements.txt ./
+
+COPY . .
+
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app/ .
+# RUN pip install pdfplumber jinja2 fastapi uvicorn python-multipart fitz PyMuPDF --trust...(公司源）
+
+EXPOSE 8000
+
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
@@ -56,15 +61,18 @@ CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 fastapi
 uvicorn
 python-multipart
-fitz
+jinja2
+pdfplumber
 PyMuPDF
-flask
 ```
 
 ### Docker 构建
 ```bash
-docker build -t pdf-api-tool .
-docker run -d -p 8090:8000 --name pdf_tool_api pdf-api-tool
+# 构建镜像
+docker build -t pdf-tool-app .
+
+# 启动容器（指定端口映射）
+docker run -d -p 8090:8000 --name pdf_tool_app_v9 pdf-tool-app
 ```
 
 ---
@@ -95,7 +103,7 @@ http://<公网IP>:8090
 curl ifconfig.me
 
 # 启动 docker 容器
-docker run -d -p 8090:8000 --name pdf_tool_api pdf-api-tool
+docker run -d -p 8090:8000 --name pdf_tool_app_v9 pdf-tool-app
 
 # 查看容器日志
 docker logs pdf_tool_api
