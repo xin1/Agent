@@ -1,20 +1,3 @@
-docker: Error response from daemon: Ports are not available: exposing port TCP 0.0.0.0:8000 -> 127.0.0.1:0: listen tcp 0.0.0.0:8000: bind: An attempt was made to access a socket in a way forbidden by its access permissions.  
-
- ollama create qwq-32b -f  C:\Users\Administrator\Downloads\Modelfile
-Error: Head "http://0.0.0.0:11434/": read tcp 10.53.2.36:53117->172.16.67.168:8080: wsarecv: A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond.  
-
-
-set NO_PROXY=localhost,127.0.0.1
-ollama create qwq-32b -f  C:\Users\Administrator\Downloads\Modelfile  
-
-docker run -d -p 8080:8000 --name pdf_tool_api pdf-api-tool  
-Unable to find image 'pdf_api_tool:latest' locally
-docker: Error response from daemon: failed to resolve reference "docker.io/library/pdf_api_tool:latest": unexpected status from HEAD request to http://hub-mirror.c.163.com/v2/library/pdf_api_tool/manifests/latest?ns=docker.io: 504 Gateway Time-out
-
-* Serving Flask app 'app'
- * Debug mode: off
-以一种访问权限不允许的方式做了一个访问套接字的尝试。
-
 <!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -30,44 +13,69 @@ docker: Error response from daemon: failed to resolve reference "docker.io/libra
             background-color: #f8f9fa;
             border-radius: 10px;
             margin-bottom: 20px;
+            cursor: pointer;
         }
         #drop-area.hover {
             border-color: #198754;
             background-color: #e9fbe5;
+        }
+        .divider {
+            border-left: 2px solid #dee2e6;
+            height: 100%;
+        }
+        #preview-image {
+            max-height: 500px;
+            object-fit: contain;
         }
     </style>
 </head>
 <body class="bg-light">
 <div class="container py-5">
     <h2 class="mb-4 text-center text-primary">📄 PDF裁剪与结构提取工具</h2>
-    <div id="drop-area">将PDF文件拖拽到此处，或点击下方上传</div>
 
-    <form id="upload-form" enctype="multipart/form-data" class="bg-white p-4 shadow rounded">
-        <div class="mb-4">
-            <label for="file" class="form-label">上传PDF文件</label>
-            <input class="form-control" type="file" id="file" name="file" accept="application/pdf" required>
+    <div class="row">
+        <!-- 左侧：上传与表单区域 -->
+        <div class="col-md-7">
+            <div id="drop-area">将PDF文件拖拽到此处，或点击下方上传</div>
+
+            <form id="upload-form" enctype="multipart/form-data" class="bg-white p-4 shadow rounded">
+                <div class="mb-3">
+                    <label for="file" class="form-label">上传PDF文件</label>
+                    <input class="form-control" type="file" id="file" name="file" accept="application/pdf" required>
+                </div>
+                <div class="row mb-3">
+                    <div class="col">
+                        <label class="form-label">上边距裁剪 (cm)</label>
+                        <input class="form-control" type="number" name="top_cm" id="top_cm" value="2.5" step="0.1">
+                    </div>
+                    <div class="col">
+                        <label class="form-label">下边距裁剪 (cm)</label>
+                        <input class="form-control" type="number" name="bottom_cm" id="bottom_cm" value="2.5" step="0.1">
+                    </div>
+                </div>
+                <button class="btn btn-primary w-100" type="submit">提交处理</button>
+            </form>
         </div>
-        <div class="row mb-4">
-            <div class="col">
-                <label class="form-label">上边距裁剪 (cm)</label>
-                <input class="form-control" type="number" name="top_cm" id="top_cm" value="2.5" step="0.1">
+
+        <!-- 中间分隔线 -->
+        <div class="col-md-1 d-flex justify-content-center">
+            <div class="divider"></div>
+        </div>
+
+        <!-- 右侧：预览与下载区域 -->
+        <!-- 右侧：预览与下载区域 -->
+        <div class="col-md-4">
+            <h5 class="text-success mb-3 text-center">✅ 预览</h5>
+            
+            <div id="preview" class="text-center" style="display:none;">
+                <img id="preview-image" class="img-fluid border rounded shadow" alt="裁剪预览图">
             </div>
-            <div class="col">
-                <label class="form-label">下边距裁剪 (cm)</label>
-                <input class="form-control" type="number" name="bottom_cm" id="bottom_cm" value="2.5" step="0.1">
+
+            <div id="download-links" class="text-center mt-4" style="display:none;">
+                <a id="pdf-link" class="btn btn-success me-2" download>下载裁剪后 PDF</a>
+                <a id="csv-link" class="btn btn-outline-primary" download>下载结构化 CSV</a>
             </div>
         </div>
-        <button class="btn btn-primary w-100" type="submit">提交处理</button>
-    </form>
-
-    <div id="preview" class="text-center my-5" style="display:none;">
-        <h5 class="text-success mb-3">✅ 预览剪裁效果</h5>
-        <img id="preview-image" class="img-fluid border rounded shadow" alt="裁剪预览图">
-    </div>
-
-    <div id="download-links" class="text-center mt-4" style="display:none;">
-        <a id="pdf-link" class="btn btn-success me-2" download>下载裁剪后 PDF</a>
-        <a id="csv-link" class="btn btn-outline-primary" download>下载结构化 CSV</a>
     </div>
 </div>
 
@@ -75,13 +83,13 @@ docker: Error response from daemon: failed to resolve reference "docker.io/libra
 const dropArea = document.getElementById("drop-area");
 const fileInput = document.getElementById("file");
 
+// 拖拽高亮
 ["dragenter", "dragover"].forEach(evt => {
     dropArea.addEventListener(evt, (e) => {
         e.preventDefault();
         dropArea.classList.add("hover");
     });
 });
-
 ["dragleave", "drop"].forEach(evt => {
     dropArea.addEventListener(evt, (e) => {
         e.preventDefault();
@@ -89,7 +97,7 @@ const fileInput = document.getElementById("file");
     });
 });
 
-// 拖入文件时赋值并提交
+// 拖拽上传
 dropArea.addEventListener("drop", function (e) {
     const files = e.dataTransfer.files;
     if (files.length > 0) {
@@ -98,7 +106,7 @@ dropArea.addEventListener("drop", function (e) {
     }
 });
 
-// 表单提交逻辑
+// 表单提交
 const form = document.getElementById("upload-form");
 form.addEventListener("submit", function (e) {
     e.preventDefault();
@@ -128,7 +136,7 @@ async function handleFileUpload(file) {
 
     const result = await response.json();
     document.getElementById("preview").style.display = "block";
-    document.getElementById("preview-image").src = `/preview/?pdf_path=${encodeURIComponent(result.pdf)}`;
+    document.getElementById("preview-image").src = `/preview/?pdf_path=${encodeURIComponent(result.pdf)}&t=${Date.now()}`;
 
     document.getElementById("download-links").style.display = "block";
     document.getElementById("pdf-link").href = `/download/?path=${encodeURIComponent(result.pdf)}`;
@@ -137,4 +145,3 @@ async function handleFileUpload(file) {
 </script>
 </body>
 </html>
-我想改一下界面，让预览在右侧，其他在左侧
