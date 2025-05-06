@@ -1,0 +1,174 @@
+project/
+├── app/
+│   ├── main.py              # FastAPI 后端服务入口
+│   ├── pdf_processor.py     # 剪裁 PDF 和结构化提取逻辑
+│   ├── utils.py             # 中间页生成预览图的工具函数
+│   ├── static/
+│   │   └── index.html       # 前端网页（上传、预览、下载）
+│   └── outputs/             # 生成的 PDF/CSV/JPEG 临时文件目录
+├── Dockerfile               # Docker 构建文件
+├── requirements.txt         # 依赖清单
+└── README.md                # 部署与使用说明
+
+# --- app/pdf_processor.py ---
+import fitz  # PyMuPDF
+import re
+import os
+
+def crop_pdf(input_pdf, output_pdf, top_crop, bottom_crop):
+    doc = fitz.open(input_pdf)
+    for page in doc:
+        rect = page.rect
+        crop_rect = fitz.Rect(
+            rect.x0, rect.y0 + top_crop, rect.x1, rect.y1 - bottom_crop
+        )
+        page.set_cropbox(crop_rect)
+    doc.save(output_pdf)
+    doc.close()
+
+def extract_text_to_csv(input_pdf, output_csv, top_crop, bottom_crop):
+    import csv
+    doc = fitz.open(input_pdf)
+    with open(output_csv, 'w', newline='', encoding='utf-8-sig') as f:
+        writer = csv.writer(f)
+        writer.writerow(['标题', '内容'])
+        current_title = None
+        current_content = []
+        for page in doc:
+            rect = page.rect
+            crop_rect = fitz.Rect(rect.x0, rect.y0 + top_crop, rect.x1, rect.y1 - bottom_crop)
+            text = page.get_text(clip=crop_rect)
+            if not text:
+                continue
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                if is_header(line):
+                    if current_title:
+                        writer.writerow([current_title, '\n'.join(current_content)])
+                    current_title = line
+                    current_content = []
+                else:
+                    current_content.append(line)
+        if current_title:
+            writer.writerow([current_title, '\n'.join(current_content)])
+    doc.close()
+
+def is_header(line):
+    return bool(re.match(r'^\d+(\.\d+){0,2}\s+', line)) and len(line) <= 50
+
+# --- app/utils.py ---
+import fitz
+from PIL import Image
+
+def generate_middle_preview(input_pdf, output_image_path, top_crop, bottom_crop):
+    doc = fitz.open(input_pdf)
+    if len(doc) == 0:
+        return False
+    mid_index = len(doc) // 2
+    page = doc[mid_index]
+    rect = page.rect
+    crop_rect = fitz.Rect(
+        rect.x0, rect.y0 + top_crop, rect.x1, rect.y1 - bottom_crop
+    )
+    pix = page.get_pixmap(clip=crop_rect, dpi=150)
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    img.save(output_image_path)
+    doc.close()
+    return True
+
+# --- app/main.py ---
+from fastapi import FastAPI, UploadFile, Form, File
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+import os
+import shutil
+from pdf_processor import crop_pdf, extract_text_to_csv
+from utils import generate_middle_preview
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+@app.get("/")
+def index():
+    with open("app/static/index.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+@app.post("/process")
+async def process(file: UploadFile = File(...), top_cm: float = Form(2.5), bottom_cm: float = Form(2.5)):
+    filename = file.filename
+    temp_path = f"app/outputs/{filename}"
+    with open(temp_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    top_px = top_cm * 28.35
+    bottom_px = bottom_cm * 28.35
+    cropped_pdf = f"app/outputs/cropped_{filename}"
+    csv_path = f"app/outputs/structured_{filename.replace('.pdf','.csv')}"
+    jpg_path = f"app/outputs/preview_{filename.replace('.pdf','.jpg')}"
+
+    crop_pdf(temp_path, cropped_pdf, top_px, bottom_px)
+    extract_text_to_csv(temp_path, csv_path, top_px, bottom_px)
+    generate_middle_preview(temp_path, jpg_path, top_px, bottom_px)
+    os.remove(temp_path)
+    return {
+        "preview": f"/{jpg_path}",
+        "pdf": f"/{cropped_pdf}",
+        "csv": f"/{csv_path}"
+    }
+
+@app.get("/download")
+def download(path: str):
+    return FileResponse(path, filename=os.path.basename(path))
+
+# --- app/static/index.html ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF 剪裁工具</title>
+</head>
+<body>
+  <h2>上传 PDF 文件</h2>
+  <form id="uploadForm">
+    <input type="file" name="file" required><br>
+    <label>页眉 (cm): <input type="number" name="top_cm" value="2.5"></label><br>
+    <label>页脚 (cm): <input type="number" name="bottom_cm" value="2.5"></label><br>
+    <button type="submit">提交处理</button>
+  </form>
+  <div id="result" style="display:none">
+    <h3>预览中间页：</h3>
+    <img id="preview" style="max-width:600px"><br>
+    <a id="pdfLink" download>下载裁剪后 PDF</a> |
+    <a id="csvLink" download>下载提取后的 CSV</a>
+  </div>
+  <script>
+    const form = document.getElementById("uploadForm")
+    form.onsubmit = async (e) => {
+      e.preventDefault()
+      const data = new FormData(form)
+      const res = await fetch("/process", {method: "POST", body: data})
+      const json = await res.json()
+      document.getElementById("preview").src = json.preview
+      document.getElementById("pdfLink").href = json.pdf
+      document.getElementById("csvLink").href = json.csv
+      document.getElementById("result").style.display = "block"
+    }
+  </script>
+</body>
+</html>
+
+# --- requirements.txt ---
+fastapi
+uvicorn
+python-multipart
+PyMuPDF
+pillow
+
+# --- Dockerfile ---
+FROM python:3.10-slim
+WORKDIR /app
+COPY . /app
+RUN pip install --no-cache-dir -r requirements.txt
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
