@@ -1,110 +1,208 @@
-<!-- 简化版前端，完整功能满足所有要求 -->
-<!DOCTYPE html>
-<html lang="zh">
-<head>
-  <meta charset="UTF-8" />
-  <title>PDF裁剪与结构提取工具</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    .split { display: flex; gap: 20px; }
-    .left { width: 60%; }
-    .right { width: 40%; }
-    #drop-area {
-      border: 2px dashed #0d6efd; padding: 30px; text-align: center;
-      border-radius: 8px; background-color: #f8f9fa;
-    }
-    #drop-area.hover { background-color: #e6f2ff; }
-    #progress-container { display: none; }
-  </style>
-</head>
-<body>
-<div class="container py-4">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="text-primary">PDF处理工具</h4>
-    <h4 class="text-secondary">预览</h4>
-  </div>
+好的，你提供的这个 HTML 前端样式已经非常清晰漂亮，使用了 Bootstrap 5 并采用了左右分栏布局。现在我将根据这个前端页面，给出**完整的前后端 + Docker 项目结构与全部代码**，实现功能包括：
 
-  <div class="split">
-    <div class="left">
-      <div id="drop-area">拖拽PDF或点击下方上传</div>
-      <form id="upload-form" enctype="multipart/form-data" class="mt-3">
-        <input type="file" id="file" name="files" multiple class="form-control mb-2" accept="application/pdf">
-        <div class="row">
-          <div class="col">
-            <label>上边距 (cm)</label>
-            <input type="number" id="top_cm" value="2.5" step="0.1" class="form-control">
-          </div>
-          <div class="col">
-            <label>下边距 (cm)</label>
-            <input type="number" id="bottom_cm" value="2.5" step="0.1" class="form-control">
-          </div>
-        </div>
-        <button type="button" id="preview-btn" class="btn btn-outline-primary w-100 mt-3">预览剪裁后PDF</button>
-        <button type="submit" class="btn btn-success w-100 mt-2">生成结构化CSV</button>
-      </form>
-      <div id="progress-container" class="progress mt-3">
-        <div class="progress-bar" id="progress-bar" style="width:0%">0%</div>
-      </div>
-    </div>
+* 支持拖拽/选择上传 PDF（多文件）
+* 支持预览单个文件裁剪效果（图像）
+* 支持设置上下边距（单位 cm）
+* 支持批量结构提取并返回压缩包下载
+* 带有进度条、下载按钮、预览图
+* 可部署为 Docker 服务
 
-    <div class="right text-center">
-      <div id="preview" style="display:none;">
-        <img id="preview-image" class="img-fluid border rounded shadow" alt="预览图">
-      </div>
-      <div id="download-links" style="display:none;" class="mt-3">
-        <a id="csv-link" class="btn btn-outline-primary" download>下载CSV压缩包</a>
-      </div>
-    </div>
-  </div>
-</div>
+---
 
-<script>
-  const form = document.getElementById("upload-form");
-  const fileInput = document.getElementById("file");
-  const previewBtn = document.getElementById("preview-btn");
-  const progressBar = document.getElementById("progress-bar");
-  const progressContainer = document.getElementById("progress-container");
+### ✅ 项目结构：
 
-  previewBtn.addEventListener("click", async () => {
-    if (!fileInput.files.length) return alert("请上传一个PDF文件");
-    const formData = new FormData();
-    formData.append("file", fileInput.files[0]);
-    formData.append("top_cm", document.getElementById("top_cm").value);
-    formData.append("bottom_cm", document.getElementById("bottom_cm").value);
+```
+pdf_tool/
+├── app.py                   # FastAPI 后端主程序
+├── Dockerfile
+├── requirements.txt
+├── static/
+│   └── preview/             # 保存预览图像
+├── templates/
+│   └── index.html           # 你提供的 Bootstrap 前端
+├── utils/
+│   ├── crop_pdf.py          # PDF裁剪工具
+│   ├── extract_structure.py # 结构提取逻辑
+│   └── preview.py           # 生成预览图像
+└── output/
+    └── ...                 # 结构化输出CSV及ZIP包
+```
 
-    const response = await fetch("/preview/", { method: "POST", body: formData });
-    const result = await response.json();
-    document.getElementById("preview-image").src = `/static/preview/${result.preview_image}`;
-    document.getElementById("preview").style.display = "block";
-  });
+---
 
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    if (!fileInput.files.length) return alert("请选择PDF文件");
-    progressContainer.style.display = "block";
-    progressBar.style.width = "0%"; progressBar.textContent = "0%";
+### ✅ 一、`templates/index.html`（使用你给的 HTML，不变）
 
-    const formData = new FormData();
-    for (let f of fileInput.files) formData.append("files", f);
-    formData.append("top_cm", document.getElementById("top_cm").value);
-    formData.append("bottom_cm", document.getElementById("bottom_cm").value);
+路径：`templates/index.html`
 
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/process_batch/");
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        const percent = Math.round((e.loaded / e.total) * 100);
-        progressBar.style.width = percent + "%";
-        progressBar.textContent = percent + "%";
-      }
-    };
-    xhr.onload = () => {
-      const res = JSON.parse(xhr.responseText);
-      document.getElementById("download-links").style.display = "block";
-      document.getElementById("csv-link").href = `/download/?path=${res.zip_path}`;
-    };
-    xhr.send(formData);
-  });
-</script>
-</body>
-</html>
+（你提供的内容不再重复贴出）
+
+---
+
+### ✅ 二、FastAPI 主程序 `app.py`
+
+```python
+from fastapi import FastAPI, File, UploadFile, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from utils.crop_pdf import crop_pdf_file
+from utils.extract_structure import extract_csv_from_pdf
+from utils.preview import generate_preview_image
+import os, shutil, zipfile, uuid
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+@app.get("/", response_class=HTMLResponse)
+def main(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.post("/preview/")
+async def preview(file: UploadFile = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    os.makedirs("static/preview", exist_ok=True)
+    temp_path = f"static/preview/temp_{uuid.uuid4()}.pdf"
+    with open(temp_path, "wb") as f:
+        f.write(await file.read())
+
+    cropped_path = crop_pdf_file(temp_path, top_cm, bottom_cm)
+    image_name = os.path.basename(cropped_path).replace(".pdf", ".png")
+    image_path = os.path.join("static/preview", image_name)
+    generate_preview_image(cropped_path, image_path)
+    os.remove(temp_path)
+    return {"preview_image": image_name}
+
+@app.post("/process_batch/")
+async def process_batch(files: list[UploadFile] = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    task_id = str(uuid.uuid4())
+    task_dir = f"output/{task_id}"
+    os.makedirs(task_dir, exist_ok=True)
+    csv_paths = []
+
+    for f in files:
+        filename = f.filename
+        pdf_path = os.path.join(task_dir, filename)
+        with open(pdf_path, "wb") as out:
+            out.write(await f.read())
+
+        cropped_path = crop_pdf_file(pdf_path, top_cm, bottom_cm)
+        csv_path = extract_csv_from_pdf(cropped_path)
+        if csv_path:
+            shutil.move(csv_path, os.path.join(task_dir, os.path.basename(csv_path)))
+            csv_paths.append(os.path.join(task_dir, os.path.basename(csv_path)))
+
+    zip_path = f"{task_dir}.zip"
+    with zipfile.ZipFile(zip_path, "w") as zipf:
+        for f in csv_paths:
+            zipf.write(f, os.path.basename(f))
+    return {"zip_path": zip_path}
+
+@app.get("/download/")
+async def download(path: str):
+    return FileResponse(path, filename=os.path.basename(path), media_type="application/zip")
+```
+
+---
+
+### ✅ 三、PDF裁剪工具 `utils/crop_pdf.py`
+
+```python
+from PyPDF2 import PdfReader, PdfWriter
+import os
+
+def crop_pdf_file(path: str, top_cm: float, bottom_cm: float) -> str:
+    reader = PdfReader(path)
+    writer = PdfWriter()
+    for page in reader.pages:
+        box = page.mediabox
+        height = float(box.top) - float(box.bottom)
+        crop_top = float(top_cm) * 28.35
+        crop_bottom = float(bottom_cm) * 28.35
+        page.mediabox.upper_left = (box.left, box.top - crop_top)
+        page.mediabox.lower_right = (box.right, box.bottom + crop_bottom)
+        writer.add_page(page)
+    cropped_path = path.replace(".pdf", "_cropped.pdf")
+    with open(cropped_path, "wb") as f:
+        writer.write(f)
+    return cropped_path
+```
+
+---
+
+### ✅ 四、预览图生成工具 `utils/preview.py`
+
+```python
+from pdf2image import convert_from_path
+
+def generate_preview_image(pdf_path: str, image_path: str):
+    pages = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=1)
+    if pages:
+        pages[0].save(image_path, "PNG")
+```
+
+---
+
+### ✅ 五、结构提取工具 `utils/extract_structure.py`
+
+> ⚠️ 此部分根据你已有的结构提取逻辑替换，以下是占位示例：
+
+```python
+import os
+
+def extract_csv_from_pdf(pdf_path: str) -> str:
+    csv_path = pdf_path.replace(".pdf", ".csv")
+    with open(csv_path, "w", encoding="utf-8") as f:
+        f.write("模拟结构化内容\n行1,行2,行3")
+    return csv_path
+```
+
+---
+
+### ✅ 六、`requirements.txt`
+
+```txt
+fastapi
+uvicorn
+jinja2
+PyPDF2
+pdf2image
+```
+
+还需安装：
+
+```bash
+apt update && apt install -y poppler-utils
+```
+
+---
+
+### ✅ 七、Dockerfile
+
+```dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+COPY . .
+
+RUN apt-get update && \
+    apt-get install -y poppler-utils && \
+    pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 8000
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+---
+
+### ✅ 八、构建与运行命令
+
+```bash
+docker build -t pdf-tool .
+docker run -d -p 8000:8000 --name pdf_tool pdf-tool
+```
+
+访问：`http://localhost:8000`
+
+---
+
+需要我打包一份完整压缩包或生成 GitHub 项目结构吗？
