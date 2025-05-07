@@ -1,3 +1,4 @@
+Query or prefix prompt is too long, you can reduce the prefix prompt, or shrink the max token, or switch to a llm with a larger token limit size
 <!DOCTYPE html>
 <html lang="zh">
 <head>
