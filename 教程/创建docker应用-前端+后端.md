@@ -1,4 +1,4 @@
-# PDFStruc 2.0 基于 **FastAPI 后端 + HTML 静态前端 + Docker 部署** 的 PDF 剪裁与结构提取工具 code：pdf-tool
+# PDFStruc 2.0 后端 + 前端 + Docker 部署 code：pdf-tool
 --
 支持上传 PDF、输入页眉页尾裁剪距离，并下载裁剪后的 PDF 和结构化的 CSV 文件。
 
