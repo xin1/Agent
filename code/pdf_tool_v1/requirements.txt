@@ -1,0 +1,13 @@
+# pymupdf
+# pandas
+# flask
+#pdfplumber
+#PyMuPDF
+
+fastapi
+uvicorn
+PyPDF2
+pdf2image
+jinja2
+python-multipart
+pillow
