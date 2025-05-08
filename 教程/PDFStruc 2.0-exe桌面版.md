@@ -4,7 +4,7 @@
 
 ---
 
-## ✅ 功能（.exe 将具备）
+## 🪧 功能（.exe 将具备）
 
 - 📂 选择 PDF 文件  
 - ✂️ 手动输入裁剪上下边距（单位像素）  
@@ -14,9 +14,7 @@
 
 ---
 
-## 🧰 一次性准备工作（本机配置）
-
-### ✅ 1. 安装必要依赖
+### 0️⃣ 1. 安装必要依赖
 
 用命令行运行：
 
@@ -26,7 +24,7 @@ pip install pymupdf pdfplumber tkinter
 
 ---
 
-## 🧠 步骤一：Python 脚本 `pdf_tool_gui.py`
+### 1️⃣ 步骤一：Python 脚本 `pdf_tool_gui.py`
 
 创建一个名为 `pdf_tool_gui.py` 的文件，内容如下：
 
@@ -147,15 +145,15 @@ root.mainloop()
 
 ---
 
-## 🧾 步骤二：将其打包为 `.exe`
+### 2️⃣ 步骤二：将其打包为 `.exe`
 
-### ✅ 安装 PyInstaller（只需一次）：
+#### ✅ 安装 PyInstaller（只需一次）：
 
 ```bash
 pip install pyinstaller
 ```
 
-### ✅ 在脚本目录运行打包命令：
+#### ✅ 在脚本目录运行打包命令：
 
 ```bash
 pyinstaller --noconsole --onefile pdf_tool_gui.py
@@ -168,7 +166,7 @@ pyinstaller --noconsole --onefile pdf_tool_gui.py
 
 ---
 
-## 📁 打包成功后
+### 3️⃣ 打包成功后
 
 你会在 `dist` 文件夹下看到：
 
