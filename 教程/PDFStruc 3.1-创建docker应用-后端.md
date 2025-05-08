@@ -1,6 +1,6 @@
 # PDFStruc 1.0 Docker部署纯后端
 
-### ✅ 后端 API 工具（推荐用 [FastAPI]）
+### ✅ 后端 API 工具（使用了 [FastAPI]）
 更轻量、部署稳定、支持并发调用，适合局域网/Web 服务：
 
 ---
