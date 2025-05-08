@@ -1,4 +1,5 @@
-# PDFStruc 3.3 优化前端，增加预览功能，code:pdf-tool-v1
+# PDFStruc 3.3 优化前端，增加预览功能
+## code : pdf-tool-v1
 以下是完整的 PDF 剪裁与结构提取工具（支持预览、CSV 提取、进度条、多文档打包下载）前后端 + Docker 部署方案：
 
 ---
