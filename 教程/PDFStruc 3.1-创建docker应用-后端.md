@@ -1,7 +1,7 @@
 # PDFStruc 1.0 Docker部署纯后端
 
-### ✅ 后端 API 工具（使用了 [FastAPI]）
-更轻量、部署稳定、支持并发调用，适合局域网/Web 服务：
+> ✅ 后端 API 工具（使用了 [FastAPI]）  
+> 更轻量、部署稳定、支持并发调用，适合局域网/Web 服务：  
 
 ---
 
@@ -28,7 +28,7 @@ pdf_api_tool/
 
 ---
 
-## 📄 `pdf_processor.py`
+### 📄 `pdf_processor.py`
 
 （逻辑与你之前的相似）
 
@@ -99,7 +99,7 @@ def process_pdf(file_path, top_cm=2.5, bottom_cm=2.5):
 
 ---
 
-## 🚀 `app.py`（FastAPI 服务）
+### 🚀 `app.py`（FastAPI 服务）
 
 ```python
 from fastapi import FastAPI, File, UploadFile, Form
@@ -135,7 +135,7 @@ def download_file(path: str):
 
 ---
 
-## 📦 `requirements.txt`
+### 📦 `requirements.txt`
 
 ```txt
 fastapi
@@ -146,7 +146,7 @@ pandas
 
 ---
 
-## 🐳 Dockerfile
+### 🐳 Dockerfile
 
 ```Dockerfile
 FROM python:3.10-slim
@@ -195,102 +195,3 @@ FormData:
 ```
 GET http://localhost:8000/download/?path=outputs/cropped_XXXX.pdf
 ```
-
----
-
-FastAPI + Docker 部署，**端口是 8090**：
-
----
-
-### ✅ `index.html`
-```html
-<!DOCTYPE html>
-<html lang="zh">
-<head>
-  <meta charset="UTF-8">
-  <title>PDF 裁剪工具</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      max-width: 600px;
-      margin: 40px auto;
-    }
-    label, input {
-      display: block;
-      margin-top: 10px;
-    }
-    button {
-      margin-top: 20px;
-      padding: 10px 20px;
-    }
-  </style>
-</head>
-<body>
-  <h1>PDF 裁剪并提取工具</h1>
-  <form id="uploadForm">
-    <label>上传 PDF 文件：
-      <input type="file" name="file" accept=".pdf" required>
-    </label>
-    <label>上边距裁剪（cm）：
-      <input type="number" name="top_cm" step="0.1" value="2.5" required>
-    </label>
-    <label>下边距裁剪（cm）：
-      <input type="number" name="bottom_cm" step="0.1" value="2.5" required>
-    </label>
-    <button type="submit">提交处理</button>
-  </form>
-
-  <p id="status"></p>
-
-  <script>
-    document.getElementById('uploadForm').addEventListener('submit', async function (e) {
-      e.preventDefault();
-
-      const form = e.target;
-      const formData = new FormData(form);
-      const status = document.getElementById('status');
-      status.textContent = '⏳ 正在处理，请稍候...';
-
-      try {
-        const response = await fetch('http://localhost:8000/process/', {
-          method: 'POST',
-          body: formData
-        });
-
-        if (!response.ok) {
-          throw new Error('处理失败，可能服务未启动或文件不合法');
-        }
-
-        const result = await response.json();
-        const download = (url, name) => {
-          const a = document.createElement('a');
-          a.href = 'http://localhost:8000/download/?path=' + encodeURIComponent(url);
-          a.download = name;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        };
-
-        download(result.pdf, '裁剪后.pdf');
-        download(result.csv, '结构化内容.csv');
-        status.textContent = '✅ 成功处理并下载文件';
-      } catch (err) {
-        console.error(err);
-        status.textContent = '❌ 处理失败：' + err.message;
-      }
-    });
-  </script>
-</body>
-</html>
-
-```
-
----
-
-### 📌 说明：
-
-- HTML 会上传 PDF、输入上下边距，提交给 `/process/` 接口。
-- 后端返回裁剪后的 PDF 和 CSV 路径，再用 `/download/` 实现点击下载。
-- `localhost:8090` 是你部署映射的端口，请根据实际端口替换。
-
----
