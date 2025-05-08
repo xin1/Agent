@@ -1,3 +1,4 @@
+# 实现功能：裁剪页眉页尾后，提取例 1 / 1.1 / 1.1.1 开头的标题为第一列，后内容为第二列，生成csv文件，
 import fitz  # PyMuPDF
 import re
 import csv
