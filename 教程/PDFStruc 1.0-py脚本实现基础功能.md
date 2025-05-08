@@ -2,6 +2,6 @@
 ## code ： base  
 Remove  
 
-[跳转](./code/base/Remove_extraction.py)  
+[跳转](../code/base/Remove_extraction.py)  
 
 
