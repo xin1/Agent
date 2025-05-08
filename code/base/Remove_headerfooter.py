@@ -1,3 +1,4 @@
+# 实现功能：裁剪页眉页尾，初始上下裁剪60pt
 import fitz  # PyMuPDF
 import os
 
