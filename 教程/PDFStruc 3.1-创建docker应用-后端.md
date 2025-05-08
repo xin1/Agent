@@ -1,6 +1,6 @@
 # PDFStruc 1.0 Docker部署纯后端
 
-> ✅ 后端 API 工具（使用了 [FastAPI]）  
+> 后端 API 工具（使用了 [FastAPI]）  
 > 更轻量、部署稳定、支持并发调用，适合局域网/Web 服务：  
 
 ---
@@ -13,7 +13,7 @@
 
 ---
 
-## 🧱 项目结构
+### 0️⃣ 项目结构
 
 你可以创建一个目录，比如 `F:\Fusion\pdf_api_tool`，结构如下：
 
@@ -28,7 +28,7 @@ pdf_api_tool/
 
 ---
 
-### 📄 `pdf_processor.py`
+### 1️⃣ `pdf_processor.py`
 
 （逻辑与你之前的相似）
 
@@ -99,7 +99,7 @@ def process_pdf(file_path, top_cm=2.5, bottom_cm=2.5):
 
 ---
 
-### 🚀 `app.py`（FastAPI 服务）
+### 2️⃣ `app.py`（FastAPI 服务）
 
 ```python
 from fastapi import FastAPI, File, UploadFile, Form
@@ -135,7 +135,7 @@ def download_file(path: str):
 
 ---
 
-### 📦 `requirements.txt`
+### 3️⃣ `requirements.txt`
 
 ```txt
 fastapi
@@ -146,7 +146,7 @@ pandas
 
 ---
 
-### 🐳 Dockerfile
+### 4️⃣ Dockerfile
 
 ```Dockerfile
 FROM python:3.10-slim
@@ -164,7 +164,7 @@ CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ---
 
-## 🧪 构建 & 运行（命令行操作）
+### 5️⃣ 构建 & 运行（命令行操作）
 
 ```bash
 cd F:\Fusion\pdf_api_tool
