@@ -1,7 +1,7 @@
 # PDFStruc 3.3 版本
 
 > 以下是完整的 PDF 剪裁与结构提取工具（支持预览、CSV 提取、进度条、多文档打包下载）前后端 + Docker 部署方案：  
-> code🔗 : [pdf_tool_v1](../code/pdf_tool_v1)  
+> code🔗 : [pdf_tool_v1](code/pdf_tool_v1)  
 ---
 
 ## ✅ 一、功能总览
