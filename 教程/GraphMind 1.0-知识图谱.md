@@ -16,77 +16,87 @@ ValueError: Could not load model distilbert-base-cased-distilled-squad with any 
 ```python
 import os
 import pandas as pd
-from transformers import AutoModelForQuestionAnswering, AutoTokenizer
-from transformers import pipeline
-import json
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import networkx as nx
 
-# 第一步：读取多个 CSV 文件
-def load_csv_files(directory):
-    dataframes = []
-    for filename in os.listdir(directory):
-        if filename.endswith('.csv'):
-            filepath = os.path.join(directory, filename)
-            df = pd.read_csv(filepath)
-            df.columns = ['Title', 'Content']  # 统一列名
-            df['Document'] = filename  # 添加文档名列
-            dataframes.append(df)
-    combined_df = pd.concat(dataframes, ignore_index=True)
-    return combined_df
+# 加载预训练模型
+model_name = "distilbert-base-uncased"  # 可以根据需要调整
+model = AutoModelForSequenceClassification.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-# 第二步：段落分割
+# 读取多个 CSV 文件并合并为一个 DataFrame
+directory = 'path_to_your_csv_files'
+dataframes = []
+
+for filename in os.listdir(directory):
+    if filename.endswith('.csv'):
+        filepath = os.path.join(directory, filename)
+        df = pd.read_csv(filepath)
+        df.columns = ['Title', 'Content']  # 确保列名一致
+        df['Document'] = filename  # 添加一个列记录文件名
+        dataframes.append(df)
+
+combined_df = pd.concat(dataframes, ignore_index=True)
+
+# 定义段落分割函数
 def split_into_paragraphs(text):
     return [para.strip() for para in text.split('\n') if para.strip()]
 
-# 第三步：加载模型和 Tokenizer
-def load_qa_model():
-    model_name = 'bert-base-cased'  # 选择一个 PyTorch 版本的模型
-    model = AutoModelForQuestionAnswering.from_pretrained(model_name)  # 不需要 TensorFlow 权重
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    return model, tokenizer
+combined_df['Paragraphs'] = combined_df['Content'].apply(split_into_paragraphs)
 
-# 使用问答模型提取段落之间的关系
-def extract_relationships(paragraphs, model, tokenizer):
-    qa_pipeline = pipeline("question-answering", model=model, tokenizer=tokenizer)
+# 使用 BERT 模型提取段落之间的关系
+def extract_relationships(paragraphs, title, document):
     relationships = []
     for i, para in enumerate(paragraphs):
+        # 每个段落和其它段落之间进行关系推理
         for j, other_para in enumerate(paragraphs):
-            if i != j:  # 不与自己比较
-                question = f"段落 {i+1} 和段落 {j+1} 之间有什么关系?"
-                result = qa_pipeline(question=question, context=para + " " + other_para)
-                relationships.append({
-                    'source': para,
-                    'target': other_para,
-                    'relation': result['answer']
-                })
+            if i != j:
+                # 构造输入文本对
+                inputs = tokenizer(para, other_para, return_tensors="pt", padding=True, truncation=True)
+                outputs = model(**inputs)
+                score = outputs.logits[0][1].item()  # 假设我们关心的是相关性的分数
+                if score > 0.5:  # 选择一个阈值来判断是否为相关段落
+                    relationships.append({
+                        'source': para,
+                        'target': other_para,
+                        'relation': 'related',  # 可以根据具体的任务修改关系描述
+                        'score': score,
+                        'document': document
+                    })
     return relationships
 
-# 第四步：将识别的关系存储到文件
-def save_relationships_to_file(relationships, output_file='relationships.json'):
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(relationships, f, ensure_ascii=False, indent=4)
+# 构建知识图谱
+all_relationships = []
+for _, row in combined_df.iterrows():
+    title = row['Title']
+    document = row['Document']
+    paragraphs = row['Paragraphs']
+    relationships = extract_relationships(paragraphs, title, document)
+    all_relationships.extend(relationships)
 
-# 主程序
-if __name__ == "__main__":
-    # 设置 CSV 文件所在目录
-    directory = 'path_to_your_csv_files'  # 修改为实际目录路径
-    combined_df = load_csv_files(directory)
-    
-    # 获取模型和 Tokenizer
-    model, tokenizer = load_qa_model()
+# 创建 NetworkX 图
+G = nx.Graph()
 
-    all_relationships = []
-    for index, row in combined_df.iterrows():
-        title = row['Title']
-        document = row['Document']
-        paragraphs = split_into_paragraphs(row['Content'])
+# 添加节点和边
+for rel in all_relationships:
+    G.add_node(rel['source'], label=rel['source'])
+    G.add_node(rel['target'], label=rel['target'])
+    G.add_edge(rel['source'], rel['target'], relation=rel['relation'], score=rel['score'])
 
-        # 提取段落之间的关系
-        relationships = extract_relationships(paragraphs, model, tokenizer)
-        all_relationships.extend(relationships)
-    
-    # 保存结果到文件
-    save_relationships_to_file(all_relationships)
-    print("所有段落关系已保存到 'relationships.json' 文件")
+# 输出知识图谱的一些基本信息
+print(f"Number of nodes: {G.number_of_nodes()}")
+print(f"Number of edges: {G.number_of_edges()}")
+
+# 可选：保存为图数据文件
+nx.write_gml(G, 'knowledge_graph.gml')
+
+# 可视化知识图谱（可选）
+import matplotlib.pyplot as plt
+pos = nx.spring_layout(G)
+plt.figure(figsize=(12, 12))
+nx.draw(G, pos, with_labels=True, node_size=500, node_color='skyblue', font_size=10, font_weight='bold')
+plt.title('Knowledge Graph')
+plt.show()
 
 ```
 使用 `transformers` 库来替代 GPT 模型进行关系提取是一个非常好的选择。你可以使用 Hugging Face 提供的预训练模型来进行文本分析和关系提取。以下是如何使用 `transformers` 和 `pipeline` 来完成关系提取的完整流程。
