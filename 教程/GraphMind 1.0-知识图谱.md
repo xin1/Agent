@@ -10,73 +10,77 @@ ValueError: Could not load model distilbert-base-cased-distilled-squad with any 
 ```python
 import os
 import pandas as pd
+from transformers import AutoModelForQuestionAnswering, AutoTokenizer
 from transformers import pipeline
 import json
 
-# 设置包含 CSV 文件的目录路径
-directory = 'path_to_csv_files'
+# 第一步：读取多个 CSV 文件
+def load_csv_files(directory):
+    dataframes = []
+    for filename in os.listdir(directory):
+        if filename.endswith('.csv'):
+            filepath = os.path.join(directory, filename)
+            df = pd.read_csv(filepath)
+            df.columns = ['Title', 'Content']  # 统一列名
+            df['Document'] = filename  # 添加文档名列
+            dataframes.append(df)
+    combined_df = pd.concat(dataframes, ignore_index=True)
+    return combined_df
 
-# 初始化一个空的 DataFrame 列表
-dataframes = []
-
-# 遍历目录中的所有文件
-for filename in os.listdir(directory):
-    if filename.endswith('.csv'):
-        filepath = os.path.join(directory, filename)
-        df = pd.read_csv(filepath)
-        # 统一列名为 'Title' 和 'Content'
-        df.columns = ['Title', 'Content']
-        # 添加一个列记录文件名
-        df['Document'] = filename
-        dataframes.append(df)
-
-# 合并所有 DataFrame
-combined_df = pd.concat(dataframes, ignore_index=True)
-
-# 定义段落分割函数
+# 第二步：段落分割
 def split_into_paragraphs(text):
     return [para.strip() for para in text.split('\n') if para.strip()]
 
-# 应用段落分割
-combined_df['Paragraphs'] = combined_df['Content'].apply(split_into_paragraphs)
+# 第三步：加载模型和 Tokenizer
+def load_qa_model():
+    model_name = 'distilbert-base-cased-distilled-squad'
+    model = AutoModelForQuestionAnswering.from_pretrained(model_name, from_tf=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    return model, tokenizer
 
-# 加载预训练的问答模型
-qa_pipeline = pipeline("question-answering")
-
-def extract_relationships_with_transformers(paragraphs, title, document):
+# 使用问答模型提取段落之间的关系
+def extract_relationships(paragraphs, model, tokenizer):
+    qa_pipeline = pipeline("question-answering", model=model, tokenizer=tokenizer)
     relationships = []
-    for para in paragraphs:
-        question = f"该段落与其他段落的关系是什么？\n段落：{para}"
-        context = "请通过上下文给出相关的关系"
-        
-        # 使用问答模型提取关系
-        result = qa_pipeline(question=question, context=context)
-        relationships.append({
-            'source': para,
-            'target': result['answer'],
-            'relation': 'related'
-        })
+    for i, para in enumerate(paragraphs):
+        for j, other_para in enumerate(paragraphs):
+            if i != j:  # 不与自己比较
+                question = f"段落 {i+1} 和段落 {j+1} 之间有什么关系?"
+                result = qa_pipeline(question=question, context=para + " " + other_para)
+                relationships.append({
+                    'source': para,
+                    'target': other_para,
+                    'relation': result['answer']
+                })
     return relationships
 
-# 提取所有文档的关系
-all_relationships = []
-for index, row in combined_df.iterrows():
-    title = row['Title']
-    document = row['Document']
-    paragraphs = row['Paragraphs']
-    relationships = extract_relationships_with_transformers(paragraphs, title, document)
-    all_relationships.extend(relationships)
+# 第四步：将识别的关系存储到文件
+def save_relationships_to_file(relationships, output_file='relationships.json'):
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(relationships, f, ensure_ascii=False, indent=4)
 
-# 导出为 CSV 文件
-relationship_df = pd.DataFrame(all_relationships)
-relationship_df.to_csv('relationship_data.csv', index=False)
+# 主程序
+if __name__ == "__main__":
+    # 设置 CSV 文件所在目录
+    directory = 'path_to_your_csv_files'  # 修改为实际目录路径
+    combined_df = load_csv_files(directory)
+    
+    # 获取模型和 Tokenizer
+    model, tokenizer = load_qa_model()
 
-# 导出为 JSON 文件
-with open('relationship_data.json', 'w', encoding='utf-8') as f:
-    json.dump(all_relationships, f, ensure_ascii=False, indent=4)
+    all_relationships = []
+    for index, row in combined_df.iterrows():
+        title = row['Title']
+        document = row['Document']
+        paragraphs = split_into_paragraphs(row['Content'])
 
-print("数据已成功导出为 CSV 和 JSON 格式！")
-
+        # 提取段落之间的关系
+        relationships = extract_relationships(paragraphs, model, tokenizer)
+        all_relationships.extend(relationships)
+    
+    # 保存结果到文件
+    save_relationships_to_file(all_relationships)
+    print("所有段落关系已保存到 'relationships.json' 文件")
 
 ```
 使用 `transformers` 库来替代 GPT 模型进行关系提取是一个非常好的选择。你可以使用 Hugging Face 提供的预训练模型来进行文本分析和关系提取。以下是如何使用 `transformers` 和 `pipeline` 来完成关系提取的完整流程。
