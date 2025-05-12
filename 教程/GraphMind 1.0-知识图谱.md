@@ -19,23 +19,21 @@ with open('edges.json', 'w', encoding='utf-8') as f:
 print("数据已保存为 JSON 文件。")
 
 ```
-可以处理多个 CSV 文件，具有不同的文件名和结构，并通过内容识别段落之间的关系，构建跨文档的知识图谱。
+使用 `transformers` 库来替代 GPT 模型进行关系提取是一个非常好的选择。你可以使用 Hugging Face 提供的预训练模型来进行文本分析和关系提取。以下是如何使用 `transformers` 和 `pipeline` 来完成关系提取的完整流程。
+
+### 步骤概览
+
+1. **加载多个 CSV 文件并读取数据**
+2. **将内容分割为段落**
+3. **使用 Hugging Face 的 `transformers` 进行关系提取**
+4. **构建知识图谱的数据结构**
+5. **可视化知识图谱**
 
 ---
 
-## 🧭 项目概览
+### 1. 读取多个 CSV 文件
 
-1. **读取多个 CSV 文件**：加载所有 CSV 文件，并统一列名。
-2. **段落分割**：将内容字段分割为多个段落。
-3. **关系提取**：使用 GPT-3.5 模型提取段落之间的关系。
-4. **构建知识图谱**：基于提取的关系构建图谱数据结构。
-5. **可视化展示**：使用 D3.js 等工具可视化知识图谱。
-
----
-
-## 📂 第一步：读取多个 CSV 文件
-
-假设您的 CSV 文件位于同一目录下，且每个文件包含两列：标题和内容。
+假设你有多个 CSV 文件，每个文件的格式是：第一列是标题，第二列是内容。首先需要读取这些文件并合并成一个统一的 DataFrame。
 
 ```python
 import os
@@ -64,9 +62,9 @@ combined_df = pd.concat(dataframes, ignore_index=True)
 
 ---
 
-## ✂️ 第二步：段落分割
+### 2. 将内容分割为段落
 
-将每个文档的内容字段按段落进行分割。
+每个文档的内容字段可能包含多个段落，因此需要将其按段落进行分割。
 
 ```python
 # 定义段落分割函数
@@ -79,48 +77,37 @@ combined_df['Paragraphs'] = combined_df['Content'].apply(split_into_paragraphs)
 
 ---
 
-## 🤖 第三步：关系提取
+### 3. 使用 Hugging Face 的 `transformers` 进行关系提取
 
-使用 OpenAI 的 GPT-3.5 模型提取段落之间的关系。
+你可以使用 Hugging Face 提供的模型（如 BERT 或 RoBERTa）来提取段落之间的关系。这里我们使用问答模型来生成关系信息。
+
+**安装依赖：**
+
+```bash
+pip install transformers torch
+```
+
+**代码示例：**
 
 ```python
-import openai
-import time
+from transformers import pipeline
 
-# 设置 OpenAI API 密钥
-openai.api_key = 'your-openai-api-key'
+# 加载预训练的问答模型
+qa_pipeline = pipeline("question-answering")
 
-# 定义关系提取函数
-def extract_relationships(paragraphs, title, document):
+def extract_relationships_with_transformers(paragraphs, title, document):
     relationships = []
-    for i, para in enumerate(paragraphs):
-        prompt = f"""
-文档标题：{title}
-文档名称：{document}
-段落内容：{para}
-
-请识别该段落与其他段落之间的关系，并以 JSON 格式返回，格式如下：
-[
-  {{
-    "source": "当前段落内容",
-    "target": "相关段落内容",
-    "relation": "关系描述"
-  }},
-  ...
-]
-如果没有相关关系，请返回空列表。
-"""
-        try:
-            response = openai.ChatCompletion.create(
-                model='gpt-3.5-turbo',
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.5
-            )
-            result = response['choices'][0]['message']['content']
-            relationships.extend(eval(result))  # 注意：使用 eval 需确保返回内容的安全性
-            time.sleep(1)  # 避免触发速率限制
-        except Exception as e:
-            print(f"Error processing paragraph {i} in document '{document}': {e}")
+    for para in paragraphs:
+        question = f"该段落与其他段落的关系是什么？\n段落：{para}"
+        context = "请通过上下文给出相关的关系"
+        
+        # 使用问答模型提取关系
+        result = qa_pipeline(question=question, context=context)
+        relationships.append({
+            'source': para,
+            'target': result['answer'],
+            'relation': 'related'
+        })
     return relationships
 
 # 提取所有文档的关系
@@ -129,15 +116,15 @@ for index, row in combined_df.iterrows():
     title = row['Title']
     document = row['Document']
     paragraphs = row['Paragraphs']
-    relationships = extract_relationships(paragraphs, title, document)
+    relationships = extract_relationships_with_transformers(paragraphs, title, document)
     all_relationships.extend(relationships)
 ```
 
 ---
 
-## 🧠 第四步：构建知识图谱
+### 4. 构建知识图谱的数据结构
 
-根据提取的关系构建知识图谱的数据结构。
+通过提取的关系构建知识图谱的节点和边结构。
 
 ```python
 # 构建节点和边
@@ -157,9 +144,9 @@ nodes = [{'id': node} for node in nodes]
 
 ---
 
-## 📊 第五步：可视化展示
+### 5. 可视化知识图谱
 
-使用 D3.js 等前端工具可视化知识图谱。以下是一个简单的 HTML 示例：
+你可以将构建的知识图谱通过可视化库如 `D3.js` 展示。以下是一个简单的 HTML 示例，展示了如何用 `D3.js` 渲染图谱。
 
 ```html
 <!DOCTYPE html>
@@ -251,14 +238,15 @@ nodes = [{'id': node} for node in nodes]
 </html>
 ```
 
-请将上述脚本中的 `nodes` 和 `edges` 数据替换为您从 Python 脚本中生成的实际数据。
-
 ---
 
-## 🔗 参考资源
+### 总结
 
-* **OpenAI API 文档**：[https://platform.openai.com/docs](https://platform.openai.com/docs)
-* **D3.js 官方文档**：[https://d3js.org/](https://d3js.org/)
+* 使用 `transformers` 库中的 `pipeline` 可以方便地提取文本之间的关系。
+* 你可以从多个 CSV 文件中加载数据，分割成段落，使用模型提取每个段落之间的关系。
+* 然后可以构建知识图谱，最后通过可视化工具如 `D3.js` 展示该图谱。
+
+如果你遇到任何问题，随时提问！
 
 ---
 
