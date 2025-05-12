@@ -1,5 +1,7 @@
 报错
 ```
+bert-base-uncased does not appear to have a file named pytorch_model.bin but there is a file for TensorFlow weights. Use `from_tf=True` to load this model from those weights.
+
 config.json: 100%|███████████████████████████████████████████████████████████████████████| 570/570 [00:00<00:00, 3.79MB/s]
 D:\Software\Anaconda3\lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\l50011746\.cache\huggingface\hub\models--bert-base-cased. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
     return func(*args, **kwargs)  File "D:\Software\Anaconda3\lib\site-packages\transformers\modeling_utils.py", line 4260, in from_pretrained    checkpoint_files, sharded_metadata = _get_resolved_checkpoint_files(
