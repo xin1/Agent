@@ -1,3 +1,7 @@
+报错
+```
+ValueError: Could not load model distilbert-base-cased-distilled-squad with any of the following classes: (<class 'transformers.models.auto.modeling_auto.AutoModelForQuestionAnswering'>, <class 'transformers.models.distilbert.modeling_distilbert.DistilBertForQuestionAnswering'>).
+```
 ```python
 import os
 import pandas as pd
