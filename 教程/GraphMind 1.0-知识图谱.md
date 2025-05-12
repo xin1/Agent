@@ -1,3 +1,6 @@
+Some weights of DistilBertForSequenceClassification were not initialized from the model checkpoint at distilbert-base-uncased and are newly initialized: ['classifier.bias', 'classifier.weight', 'pre_classifier.bias', 'pre_classifier.weight']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+
 报错
 ```
 ValueError: Expected 2D array, got 1D array instead:
