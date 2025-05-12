@@ -1,5 +1,7 @@
 报错
 ```
+distilbert/distilbert-base-cased-distilled-squad does not appear to have a file named pytorch_model.bin but there is a file for TensorFlow weights. Use `from_tf=True` to load this model from those weights.
+
 RuntimeError: Failed to import transformers.pipelines because of the following error (look up to see its traceback):       
 No module named 'torch.distributed.tensor'
 
