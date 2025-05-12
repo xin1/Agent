@@ -1,3 +1,24 @@
+```python
+import json
+
+# 假设 all_relationships 是关系数据
+# 假设 nodes 和 edges 是从关系数据中构建出来的
+
+# 保存关系数据到 JSON 文件
+with open('relationships.json', 'w', encoding='utf-8') as f:
+    json.dump(all_relationships, f, ensure_ascii=False, indent=4)
+
+# 保存节点数据到 JSON 文件
+with open('nodes.json', 'w', encoding='utf-8') as f:
+    json.dump(nodes, f, ensure_ascii=False, indent=4)
+
+# 保存边数据到 JSON 文件
+with open('edges.json', 'w', encoding='utf-8') as f:
+    json.dump(edges, f, ensure_ascii=False, indent=4)
+
+print("数据已保存为 JSON 文件。")
+
+```
 可以处理多个 CSV 文件，具有不同的文件名和结构，并通过内容识别段落之间的关系，构建跨文档的知识图谱。
 
 ---
