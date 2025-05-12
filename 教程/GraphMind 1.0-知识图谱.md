@@ -1,5 +1,8 @@
 报错
 ```
+RuntimeError: Failed to import transformers.pipelines because of the following error (look up to see its traceback):       
+No module named 'torch.distributed.tensor'
+
 ValueError: Could not load model distilbert-base-cased-distilled-squad with any of the following classes: (<class 'transformers.models.auto.modeling_auto.AutoModelForQuestionAnswering'>, <class 'transformers.models.distilbert.modeling_distilbert.DistilBertForQuestionAnswering'>).
 ```
 ```python
