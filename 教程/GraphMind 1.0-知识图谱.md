@@ -1,5 +1,9 @@
 报错
 ```
+ValueError: Expected 2D array, got 1D array instead:
+array=[].
+Reshape your data either using array.reshape(-1, 1) if your data has a single feature or array.reshape(1, -1) if it contains a single sample.
+
 bert-base-uncased does not appear to have a file named pytorch_model.bin but there is a file for TensorFlow weights. Use `from_tf=True` to load this model from those weights.
 
 config.json: 100%|███████████████████████████████████████████████████████████████████████| 570/570 [00:00<00:00, 3.79MB/s]
