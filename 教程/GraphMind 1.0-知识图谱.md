@@ -33,8 +33,8 @@ def split_into_paragraphs(text):
 
 # 第三步：加载模型和 Tokenizer
 def load_qa_model():
-    model_name = 'distilbert-base-cased-distilled-squad'
-    model = AutoModelForQuestionAnswering.from_pretrained(model_name, from_tf=True)  # 指定 from_tf=True
+    model_name = 'bert-base-cased'  # 选择一个 PyTorch 版本的模型
+    model = AutoModelForQuestionAnswering.from_pretrained(model_name)  # 不需要 TensorFlow 权重
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return model, tokenizer
 
@@ -81,7 +81,6 @@ if __name__ == "__main__":
     # 保存结果到文件
     save_relationships_to_file(all_relationships)
     print("所有段落关系已保存到 'relationships.json' 文件")
-
 
 ```
 使用 `transformers` 库来替代 GPT 模型进行关系提取是一个非常好的选择。你可以使用 Hugging Face 提供的预训练模型来进行文本分析和关系提取。以下是如何使用 `transformers` 和 `pipeline` 来完成关系提取的完整流程。
