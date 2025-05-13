@@ -1,5 +1,6 @@
 gpu
 ```
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 import os
 import pandas as pd
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
