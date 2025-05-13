@@ -1,8 +1,7 @@
-Some weights of DistilBertForSequenceClassification were not initialized from the model checkpoint at distilbert-base-uncased and are newly initialized: ['classifier.bias', 'classifier.weight', 'pre_classifier.bias', 'pre_classifier.weight']
-You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
-
 报错
 ```
+pandas.errors.ParserError: Error tokenizing data. C error: EOF inside string starting at row 5
+
 ValueError: Expected 2D array, got 1D array instead:
 array=[].
 Reshape your data either using array.reshape(-1, 1) if your data has a single feature or array.reshape(1, -1) if it contains a single sample.
