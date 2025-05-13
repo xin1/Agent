@@ -1,25 +1,98 @@
-报错
+new
 ```
-pandas.errors.ParserError: Error tokenizing data. C error: EOF inside string starting at row 5
+import os
+import pandas as pd
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import networkx as nx
+import torch
+from tqdm import tqdm
 
-ValueError: Expected 2D array, got 1D array instead:
-array=[].
-Reshape your data either using array.reshape(-1, 1) if your data has a single feature or array.reshape(1, -1) if it contains a single sample.
+# 加载预训练模型
+model_name = "bert-base-chinese"  # 可以根据需要调整
+model = AutoModelForSequenceClassification.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-bert-base-uncased does not appear to have a file named pytorch_model.bin but there is a file for TensorFlow weights. Use `from_tf=True` to load this model from those weights.
+# 读取多个 CSV 文件并合并为一个 DataFrame
+directory = 'csv_files'
+dataframes = []
 
-config.json: 100%|███████████████████████████████████████████████████████████████████████| 570/570 [00:00<00:00, 3.79MB/s]
-D:\Software\Anaconda3\lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\l50011746\.cache\huggingface\hub\models--bert-base-cased. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
-    return func(*args, **kwargs)  File "D:\Software\Anaconda3\lib\site-packages\transformers\modeling_utils.py", line 4260, in from_pretrained    checkpoint_files, sharded_metadata = _get_resolved_checkpoint_files(
-  File "D:\Software\Anaconda3\lib\site-packages\transformers\modeling_utils.py", line 1080, in _get_resolved_checkpoint_files    raise EnvironmentError(
-OSError: bert-base-cased does not appear to have a file named pytorch_model.bin but there is a file for TensorFlow weights. Use `from_tf=True` to load this model from those weights.
+for filename in os.listdir(directory):
+    if filename.endswith('.csv'):
+        filepath = os.path.join(directory, filename)
+        try:    
+            df = pd.read_csv(filepath,on_bad_lines='skip',encoding ='utf-8')
+            df.columns = ['Title', 'Content']  # 确保列名一致
+            df['Document'] = filename  # 添加一个列记录文件名
+            dataframes.append(df)
+        except Exception as e:
+            print(f"读取失败:{filename},错误:{e}")
 
-distilbert/distilbert-base-cased-distilled-squad does not appear to have a file named pytorch_model.bin but there is a file for TensorFlow weights. Use `from_tf=True` to load this model from those weights.
+combined_df = pd.concat(dataframes, ignore_index=True)
 
-RuntimeError: Failed to import transformers.pipelines because of the following error (look up to see its traceback):       
-No module named 'torch.distributed.tensor'
+# 定义段落分割函数
+def split_into_paragraphs(text):
+    if isinstance(text,str):
+        return [para.strip() for para in text.split('\n') if para.strip()]
+    else:
+        return[]
 
-ValueError: Could not load model distilbert-base-cased-distilled-squad with any of the following classes: (<class 'transformers.models.auto.modeling_auto.AutoModelForQuestionAnswering'>, <class 'transformers.models.distilbert.modeling_distilbert.DistilBertForQuestionAnswering'>).
+combined_df['Paragraphs'] = combined_df['Content'].apply(lambda x:split_into_paragraphs(str(x)))
+
+# 使用 BERT 模型提取段落之间的关系
+def extract_relationships(paragraphs, title, document):
+    relationships = []
+    for i, para in enumerate(tqdm(paragraphs,desc=f'Processing para in {document}')):
+        # 每个段落和其它段落之间进行关系推理
+        for j, other_para in enumerate(paragraphs):
+            if i != j:
+                # 构造输入文本对
+                inputs = tokenizer(para, other_para, return_tensors="pt", padding=True, truncation=True)
+                outputs = model(**inputs)
+                score = outputs.logits[0][1].item()  # 假设我们关心的是相关性的分数
+                if score > 0.5:  # 选择一个阈值来判断是否为相关段落
+                    relationships.append({
+                        'source': para,
+                        'target': other_para,
+                        'relation': 'related',  # 可以根据具体的任务修改关系描述
+                        'score': score,
+                        'document': document
+                    })
+    return relationships
+
+# 构建知识图谱
+all_relationships = []
+for _, row in tqdm(combined_df.iterrows(),total=len(combined_df),desc="总文档处理进度"):
+    title = row['Title']
+    document = row['Document']
+    paragraphs = row['Paragraphs']
+    relationships = extract_relationships(paragraphs, title, document)
+    all_relationships.extend(relationships)
+
+# 创建 NetworkX 图
+G = nx.Graph()
+
+# 添加节点和边
+for rel in all_relationships:
+    G.add_node(rel['source'], label=rel['source'])
+    G.add_node(rel['target'], label=rel['target'])
+    G.add_edge(rel['source'], rel['target'], relation=rel['relation'], score=rel['score'])
+
+# 输出知识图谱的一些基本信息
+print(f"Number of nodes: {G.number_of_nodes()}")
+print(f"Number of edges: {G.number_of_edges()}")
+
+# 可选：保存为图数据文件
+nx.write_gml(G, 'knowledge_graph.gml')
+
+# 可视化知识图谱（可选）
+import matplotlib.pyplot as plt
+pos = nx.spring_layout(G)
+plt.figure(figsize=(12, 12))
+nx.draw(G, pos, with_labels=True, node_size=500, node_color='skyblue', font_size=10, font_weight='bold')
+plt.title('Knowledge Graph')
+plt.show()
+
+
 ```
 ```python
 import os
