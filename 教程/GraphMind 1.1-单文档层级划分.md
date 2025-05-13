@@ -4,92 +4,84 @@ import os
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
-from tqdm import tqdm
-from matplotlib.font_manager import FontProperties
+import matplotlib.font_manager as fm
+import re
 
-# 设置中文字体
-font_path = "C:/Windows/Fonts/simhei.ttf"  # SimHei 中文字体路径（Windows）
-font_prop = FontProperties(fname=font_path)
+# 设置中文字体，防止乱码
+font_path = 'C:/Windows/Fonts/simhei.ttf'  # 你可以改成你系统中其他中文字体路径
+my_font = fm.FontProperties(fname=font_path)
 
-# 设置目录
-directory = 'csv_files/my_doc'
+# 读取所有CSV文件
+folder = 'csv_files/my_doc'
+dfs = []
 
-# 合并多个 CSV 文件
-all_nodes = []
-all_edges = []
-
-for filename in os.listdir(directory):
+for filename in os.listdir(folder):
     if filename.endswith('.csv'):
-        filepath = os.path.join(directory, filename)
+        path = os.path.join(folder, filename)
         try:
-            df = pd.read_csv(filepath, encoding='utf-8', on_bad_lines='skip')
-            df.columns = ['Title', 'Content']  # 确保列名一致
-            df['Document'] = filename[:-4]  # 移除 .csv
-            all_nodes.append(df)
+            df = pd.read_csv(path, encoding='utf-8', on_bad_lines='skip')
+            df.columns = ['Title', 'Content']  # 保证统一列名
+            df['Document'] = os.path.splitext(filename)[0]  # 加上所属文件名
+            dfs.append(df)
         except Exception as e:
-            print(f"读取失败: {filename}, 错误: {e}")
+            print(f"读取失败 {filename}：{e}")
 
-# 合并所有数据
-combined_df = pd.concat(all_nodes, ignore_index=True)
+all_df = pd.concat(dfs, ignore_index=True)
 
-# 提取层级函数
-def get_level(title):
-    try:
-        parts = title.split()[0].split('.')  # 例如 '1.2.3 xxx'
-        return len(parts)
-    except:
-        return 0
+# 提取标题层级
+def extract_level(title):
+    match = re.match(r'^(\d+(\.\d+)*)', str(title).strip())
+    return match.group(1) if match else None
 
-# 创建图
+all_df['Level'] = all_df['Title'].apply(extract_level)
+all_df = all_df.dropna(subset=['Level'])  # 只保留有层级结构的标题
+
+# 构建知识图谱图结构
 G = nx.DiGraph()
+max_display_level = 2  # 只显示到第2级：例如“1.1”
 
-# 构建图谱
-for _, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="构建图谱"):
-    title = str(row['Title']).strip()
-    content = str(row['Content']).strip()
-    document = row['Document']
-    
-    if not title or '.' not in title:
-        continue
-    
-    # 提取编号和标题
-    number = title.split()[0]
-    label = title
-    level = get_level(title)
-    
-    # 根节点（文档名）为0级
-    if level == 1:
-        parent = document
+for _, row in all_df.iterrows():
+    doc = row['Document']
+    full_title = row['Title']
+    level_code = row['Level']
+    level_parts = level_code.split('.')
+    display = len(level_parts) <= max_display_level
+
+    current_node = f"{level_code} {full_title}"
+    if display:
+        G.add_node(current_node, label=full_title)
+
+    if len(level_parts) == 1:
+        parent_node = doc  # 最顶层属于文档
     else:
-        parent = '.'.join(number.split('.')[:-1])
-    
-    # 添加节点和边（限制显示到1.1层）
-    G.add_node(number, label=label, content=content, level=level)
-    if level <= 2:
-        G.add_edge(parent, number)
+        parent_code = '.'.join(level_parts[:-1])
+        parent_title = all_df[all_df['Level'] == parent_code]['Title']
+        parent_title = parent_title.values[0] if not parent_title.empty else parent_code
+        parent_node = f"{parent_code} {parent_title}"
 
-# 删除不在可视层级范围内的节点
-max_level_to_show = 2
-nodes_to_remove = [n for n, d in G.nodes(data=True) if d.get('level', 0) > max_level_to_show]
-G.remove_nodes_from(nodes_to_remove)
+    if display and len(level_parts) <= max_display_level:
+        G.add_edge(parent_node, current_node)
+
+# 添加文档名为根节点
+for doc in all_df['Document'].unique():
+    G.add_node(doc, label=doc)
 
 # 可视化图谱
-pos = nx.spring_layout(G, k=1.5)
-plt.figure(figsize=(14, 12))
+plt.figure(figsize=(14, 10))
+pos = nx.spring_layout(G, k=0.6, seed=42)
 
-nx.draw(G, pos, with_labels=False, node_size=1500, node_color='lightblue', edge_color='gray')
+# 只绘制包含的子图
+nx.draw_networkx_nodes(G, pos, node_size=700, node_color='lightblue')
+nx.draw_networkx_edges(G, pos, arrows=True)
+nx.draw_networkx_labels(G, pos,
+                        labels={n: d['label'] for n, d in G.nodes(data=True) if 'label' in d},
+                        font_properties=my_font,
+                        font_size=10)
 
-# 中文标签绘制
-labels = {node: G.nodes[node]['label'] for node in G.nodes()}
-for node, (x, y) in pos.items():
-    plt.text(x, y, labels[node], fontsize=10, fontproperties=font_prop, ha='center', va='center')
-
-plt.title("知识图谱（仅展示到1.1层级）", fontproperties=font_prop, fontsize=16)
+plt.title("中文标题层级知识图谱", fontproperties=my_font, fontsize=16)
 plt.axis('off')
 plt.tight_layout()
-plt.savefig("knowledge_graph_limited.png", dpi=300)
 plt.show()
-
 
 ```
 思路总结（支持中文标题、结构识别、知识图谱构建和可视化）
