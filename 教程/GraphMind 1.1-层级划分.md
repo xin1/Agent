@@ -1,3 +1,7 @@
+错误
+```
+TypeError: draw_networkx_labels() got an unexpected keyword argument 'font_properties'
+```
 思路总结（支持中文标题、结构识别、知识图谱构建和可视化）
 
 ---
