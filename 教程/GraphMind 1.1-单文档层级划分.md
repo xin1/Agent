@@ -4,84 +4,86 @@ import os
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
+import matplotlib
+
+# 强制设置 matplotlib 使用中文字体，避免乱码
+matplotlib.rcParams['font.sans-serif'] = ['SimHei']     # 设置中文字体
+matplotlib.rcParams['axes.unicode_minus'] = False       # 解决负号乱码
+
 import re
 
-# 设置中文字体，防止乱码
-font_path = 'C:/Windows/Fonts/simhei.ttf'  # 你可以改成你系统中其他中文字体路径
-my_font = fm.FontProperties(fname=font_path)
-
-# 读取所有CSV文件
+# 读取 CSV 文件夹
 folder = 'csv_files/my_doc'
 dfs = []
 
 for filename in os.listdir(folder):
     if filename.endswith('.csv'):
-        path = os.path.join(folder, filename)
         try:
-            df = pd.read_csv(path, encoding='utf-8', on_bad_lines='skip')
-            df.columns = ['Title', 'Content']  # 保证统一列名
-            df['Document'] = os.path.splitext(filename)[0]  # 加上所属文件名
+            df = pd.read_csv(os.path.join(folder, filename), encoding='utf-8', on_bad_lines='skip')
+            df.columns = ['Title', 'Content']  # 保证标题和内容列统一
+            df['Document'] = os.path.splitext(filename)[0]
             dfs.append(df)
         except Exception as e:
-            print(f"读取失败 {filename}：{e}")
+            print(f"读取失败: {filename}, 错误: {e}")
 
-all_df = pd.concat(dfs, ignore_index=True)
+# 合并所有文件
+df_all = pd.concat(dfs, ignore_index=True)
 
-# 提取标题层级
+# 提取层级编号
 def extract_level(title):
     match = re.match(r'^(\d+(\.\d+)*)', str(title).strip())
     return match.group(1) if match else None
 
-all_df['Level'] = all_df['Title'].apply(extract_level)
-all_df = all_df.dropna(subset=['Level'])  # 只保留有层级结构的标题
+df_all['Level'] = df_all['Title'].apply(extract_level)
+df_all = df_all.dropna(subset=['Level'])
 
-# 构建知识图谱图结构
+# 构建图谱
 G = nx.DiGraph()
-max_display_level = 2  # 只显示到第2级：例如“1.1”
+max_level = 2  # 设置只显示到几级标题，例如 1.1 是两级
 
-for _, row in all_df.iterrows():
+for _, row in df_all.iterrows():
     doc = row['Document']
     full_title = row['Title']
     level_code = row['Level']
     level_parts = level_code.split('.')
-    display = len(level_parts) <= max_display_level
+
+    # 控制图谱最大显示层级
+    if len(level_parts) > max_level:
+        continue
 
     current_node = f"{level_code} {full_title}"
-    if display:
-        G.add_node(current_node, label=full_title)
+    G.add_node(current_node, label=full_title)
 
     if len(level_parts) == 1:
-        parent_node = doc  # 最顶层属于文档
+        parent_node = doc
     else:
         parent_code = '.'.join(level_parts[:-1])
-        parent_title = all_df[all_df['Level'] == parent_code]['Title']
-        parent_title = parent_title.values[0] if not parent_title.empty else parent_code
+        parent_row = df_all[df_all['Level'] == parent_code]
+        parent_title = parent_row['Title'].values[0] if not parent_row.empty else parent_code
         parent_node = f"{parent_code} {parent_title}"
 
-    if display and len(level_parts) <= max_display_level:
-        G.add_edge(parent_node, current_node)
+    G.add_edge(parent_node, current_node)
 
 # 添加文档名为根节点
-for doc in all_df['Document'].unique():
+for doc in df_all['Document'].unique():
     G.add_node(doc, label=doc)
 
-# 可视化图谱
+# 可视化
 plt.figure(figsize=(14, 10))
 pos = nx.spring_layout(G, k=0.6, seed=42)
 
-# 只绘制包含的子图
-nx.draw_networkx_nodes(G, pos, node_size=700, node_color='lightblue')
+nx.draw_networkx_nodes(G, pos, node_size=800, node_color='lightblue')
 nx.draw_networkx_edges(G, pos, arrows=True)
-nx.draw_networkx_labels(G, pos,
-                        labels={n: d['label'] for n, d in G.nodes(data=True) if 'label' in d},
-                        font_properties=my_font,
-                        font_size=10)
 
-plt.title("中文标题层级知识图谱", fontproperties=my_font, fontsize=16)
+# 使用 label 参数绘制中文标签，避免 font_properties 报错
+labels = {n: d['label'] for n, d in G.nodes(data=True) if 'label' in d}
+nx.draw_networkx_labels(G, pos, labels=labels, font_size=10, font_family='SimHei')
+
+plt.title("中文文档标题层级知识图谱", fontsize=16)
 plt.axis('off')
 plt.tight_layout()
 plt.show()
+
 
 ```
 思路总结（支持中文标题、结构识别、知识图谱构建和可视化）
