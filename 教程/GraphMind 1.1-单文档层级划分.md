@@ -40,31 +40,29 @@ TypeError: draw_networkx_labels() got an unexpected keyword argument 'font_prope
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
-import matplotlib
+from matplotlib import font_manager as fm
 import os
 
-# 设置全局中文字体（推荐：simhei、msyh、SimSun）
-matplotlib.rcParams['font.family'] = 'SimHei'  # 黑体。你可以替换为系统中的其他中文字体
+# 中文字体路径（换成你系统中的路径）
+font_path = "C:/Windows/Fonts/msyh.ttc"  # Windows 下的微软雅黑路径
+my_font = fm.FontProperties(fname=font_path)
 
-# 读取 CSV 文件（第一列是标题，第二列是内容）
-csv_path = 'your_file.csv'  # 修改为你的CSV文件路径
-df = pd.read_csv(csv_path, encoding='utf-8')
+# 加载 CSV 数据
+df = pd.read_csv("your_file.csv", encoding='utf-8')
 df.columns = ['Title', 'Content']
 
-# 获取标题层级（1、1.1、1.2.3等）
+# 提取标题层级
 def get_title_level(title):
     return len(str(title).split('.'))
 
-# 构建层级关系
 def build_hierarchy(df):
     df['Level'] = df['Title'].apply(get_title_level)
-    df['Node'] = df['Title'] + ' ' + df['Content'].str.slice(0, 15)  # 每个节点显示前15个字符内容
+    df['Node'] = df['Title'] + ' ' + df['Content'].str.slice(0, 10)
     edges = []
     stack = []
-
     for _, row in df.iterrows():
-        current_level = row['Level']
-        while stack and stack[-1]['Level'] >= current_level:
+        level = row['Level']
+        while stack and stack[-1]['Level'] >= level:
             stack.pop()
         if stack:
             parent = stack[-1]
@@ -72,8 +70,9 @@ def build_hierarchy(df):
         stack.append(row)
     return df, edges
 
-# 构建图
 df, edges = build_hierarchy(df)
+
+# 构建图
 G = nx.DiGraph()
 for _, row in df.iterrows():
     G.add_node(row['Node'])
@@ -83,19 +82,16 @@ for src, dst in edges:
 
 # 可视化
 plt.figure(figsize=(14, 12))
-pos = nx.spring_layout(G, k=0.5)
+pos = nx.spring_layout(G, k=0.8)
 nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=1000)
 nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=15)
-nx.draw_networkx_labels(G, pos, font_size=10)  # 中文显示依赖于全局 font.family 设置
+nx.draw_networkx_labels(G, pos, font_properties=my_font, font_size=10)
 
-plt.title("中文知识图谱：标题层级包含关系", fontsize=16)
+plt.title("中文知识图谱：标题层级结构", fontproperties=my_font, fontsize=16)
 plt.axis('off')
 plt.tight_layout()
-plt.savefig("knowledge_graph_cn_fixed.png", dpi=300)
+plt.savefig("knowledge_graph_fixed_cn.png", dpi=300)
 plt.show()
-
-# 可选：保存为 GML 图
-nx.write_gml(G, "knowledge_graph_cn.gml")
 
 ```
 
