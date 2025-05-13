@@ -33,64 +33,72 @@
 需要把你的CSV文件命名为例如：`my_doc.csv`（第一列为标题，第二列为内容），并运行下面的代码：
 
 ```python
-import os
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
+import os
+from matplotlib.font_manager import FontProperties
 
-# 修改为你的CSV文件名
-csv_path = "my_doc.csv"
+# 设置中文字体（根据系统路径自行修改）
+# Windows系统中文字体路径举例（仿宋、微软雅黑等）
+font_path = "C:/Windows/Fonts/simhei.ttf"  # 你可以改成你系统有的字体路径
+font_prop = FontProperties(fname=font_path)
 
-# 读取 CSV（假设第一列是标题，第二列是内容）
-df = pd.read_csv(csv_path, encoding='utf-8', header=None)
+# 读取 CSV 文件
+csv_path = 'your_file.csv'  # 修改为你的文件路径
+df = pd.read_csv(csv_path, encoding='utf-8')
+
+# 标准化列名
 df.columns = ['Title', 'Content']
 
-# 自动识别编号、标题名、层级和父节点
-def parse_title(title):
-    title = str(title).strip()
-    if ' ' in title:
-        number, name = title.split(' ', 1)
-    elif '　' in title:
-        number, name = title.split('　', 1)
-    else:
-        number, name = title, ''
-    level = number.count('.') + 1 if number != 'root' else 0
-    parent = '.'.join(number.split('.')[:-1]) if level > 1 else 'root'
-    return pd.Series([number, name, level, parent])
+# 提取标题层级
+def get_title_level(title):
+    parts = str(title).split('.')
+    return len(parts)
 
-df[['Number', 'Name', 'Level', 'Parent']] = df['Title'].apply(parse_title)
+# 建立包含层级映射关系
+def build_hierarchy(df):
+    df['Level'] = df['Title'].apply(get_title_level)
+    df['Node'] = df['Title'] + ' ' + df['Content'].str.slice(0, 15)  # 节点显示前15字
+    edges = []
 
-# 初始化图
+    stack = []  # 存储当前各级别的上一个标题
+    for _, row in df.iterrows():
+        current_level = row['Level']
+        while stack and stack[-1]['Level'] >= current_level:
+            stack.pop()
+        if stack:
+            parent = stack[-1]
+            edges.append((parent['Node'], row['Node']))
+        stack.append(row)
+
+    return df, edges
+
+# 构建图
+df, edges = build_hierarchy(df)
 G = nx.DiGraph()
-
-# 添加根节点（文档名）
-doc_name = os.path.splitext(os.path.basename(csv_path))[0]
-G.add_node('root', label=doc_name, content='文档根')
-
-# 添加每个段落为节点并连接关系
 for _, row in df.iterrows():
-    node_id = row['Number']
-    label = row['Name']
-    content = row['Content']
-    G.add_node(node_id, label=label, content=content)
-    G.add_edge(row['Parent'], node_id)
+    G.add_node(row['Node'], label=row['Title'])
 
-# 输出图信息
-print(f"节点数: {G.number_of_nodes()}")
-print(f"边数: {G.number_of_edges()}")
+for src, dst in edges:
+    G.add_edge(src, dst, relation='包含')
 
-# 可视化
-plt.figure(figsize=(14, 10))
-pos = nx.spring_layout(G, k=0.7, seed=42)
-labels = nx.get_node_attributes(G, 'label')
-nx.draw(G, pos, labels=labels, with_labels=True, node_size=1000,
-        node_color='lightblue', font_size=9, arrows=True, edge_color='gray')
-plt.title("中文结构知识图谱（层级关系）", fontsize=14)
+# 可视化图
+plt.figure(figsize=(14, 12))
+pos = nx.spring_layout(G, k=0.5, iterations=50)
+nx.draw_networkx_nodes(G, pos, node_size=1000, node_color='lightblue')
+nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=15)
+nx.draw_networkx_labels(G, pos, font_size=10, font_properties=font_prop)
+
+plt.title("知识图谱：层级包含关系", fontproperties=font_prop, fontsize=16)
+plt.axis('off')
 plt.tight_layout()
+plt.savefig("knowledge_graph_cn.png", dpi=300)
 plt.show()
 
-# 可导出为 .gml 用 Gephi 打开
-nx.write_gml(G, f"{doc_name}_knowledge_graph.gml")
+# 可选：保存为 GML 图文件
+nx.write_gml(G, "knowledge_graph_cn.gml")
+
 ```
 
 ---
