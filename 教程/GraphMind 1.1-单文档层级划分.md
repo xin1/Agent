@@ -1,73 +1,95 @@
 错误
 ```
+import os
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 from matplotlib.font_manager import FontProperties
-import os
 
-# 读取CSV文件
-file_path = 'csv_files/my_doc.csv'
-df = pd.read_csv(file_path, encoding='utf-8')
-df.columns = ['Title', 'Content']  # 确保列名统一
-
-# 提取文档名
-document_name = os.path.splitext(os.path.basename(file_path))[0]
-
-# 提取编号和标题文本
-def extract_level(title):
-    try:
-        parts = title.strip().split()
-        level = parts[0]
-        text = ''.join(parts[1:])
-        return level, text
-    except:
-        return '', title
-
-df[['Level', 'Text']] = df['Title'].apply(lambda x: pd.Series(extract_level(x)))
-df['FullNode'] = df['Level'] + ' ' + df['Text']
-
-# 构建只包含到二级标题的知识图谱
-G = nx.DiGraph()
-G.add_node(document_name, label=document_name)
-
-level_to_node = {}
-
-for _, row in df.iterrows():
-    level = row['Level']
-    if level.count('.') > 1:
-        continue  # 跳过超过二级标题
-
-    node = row['FullNode']
-    G.add_node(node, label=node)
-
-    if '.' in level:
-        parent_level = '.'.join(level.split('.')[:-1])
-        parent_node = level_to_node.get(parent_level)
-        if parent_node:
-            G.add_edge(parent_node, node)
-    else:
-        G.add_edge(document_name, node)
-
-    level_to_node[level] = node
-
-# 设置中文字体（微软雅黑）
-font_path = "C:/Windows/Fonts/msyh.ttc"
-if not os.path.exists(font_path):
-    font_path = "C:/Windows/Fonts/simhei.ttf"
+# 设置中文字体
+font_path = "C:/Windows/Fonts/simhei.ttf"  # SimHei 中文字体路径（Windows）
 font_prop = FontProperties(fname=font_path)
 
-# 绘制图
-plt.figure(figsize=(10, 8))
-pos = nx.spring_layout(G, k=0.6)
-nx.draw(G, pos, with_labels=False, node_size=3000, node_color="lightblue", edge_color="gray", arrows=True)
-labels = {node: node for node in G.nodes()}
-nx.draw_networkx_labels(G, pos, labels, font_size=10, font_properties=font_prop)
+# 设置目录
+directory = 'csv_files/my_doc'
 
-plt.title("中文知识图谱（只显示一级与二级标题）", fontproperties=font_prop, fontsize=14)
+# 合并多个 CSV 文件
+all_nodes = []
+all_edges = []
+
+for filename in os.listdir(directory):
+    if filename.endswith('.csv'):
+        filepath = os.path.join(directory, filename)
+        try:
+            df = pd.read_csv(filepath, encoding='utf-8', on_bad_lines='skip')
+            df.columns = ['Title', 'Content']  # 确保列名一致
+            df['Document'] = filename[:-4]  # 移除 .csv
+            all_nodes.append(df)
+        except Exception as e:
+            print(f"读取失败: {filename}, 错误: {e}")
+
+# 合并所有数据
+combined_df = pd.concat(all_nodes, ignore_index=True)
+
+# 提取层级函数
+def get_level(title):
+    try:
+        parts = title.split()[0].split('.')  # 例如 '1.2.3 xxx'
+        return len(parts)
+    except:
+        return 0
+
+# 创建图
+G = nx.DiGraph()
+
+# 构建图谱
+for _, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="构建图谱"):
+    title = str(row['Title']).strip()
+    content = str(row['Content']).strip()
+    document = row['Document']
+    
+    if not title or '.' not in title:
+        continue
+    
+    # 提取编号和标题
+    number = title.split()[0]
+    label = title
+    level = get_level(title)
+    
+    # 根节点（文档名）为0级
+    if level == 1:
+        parent = document
+    else:
+        parent = '.'.join(number.split('.')[:-1])
+    
+    # 添加节点和边（限制显示到1.1层）
+    G.add_node(number, label=label, content=content, level=level)
+    if level <= 2:
+        G.add_edge(parent, number)
+
+# 删除不在可视层级范围内的节点
+max_level_to_show = 2
+nodes_to_remove = [n for n, d in G.nodes(data=True) if d.get('level', 0) > max_level_to_show]
+G.remove_nodes_from(nodes_to_remove)
+
+# 可视化图谱
+pos = nx.spring_layout(G, k=1.5)
+plt.figure(figsize=(14, 12))
+
+nx.draw(G, pos, with_labels=False, node_size=1500, node_color='lightblue', edge_color='gray')
+
+# 中文标签绘制
+labels = {node: G.nodes[node]['label'] for node in G.nodes()}
+for node, (x, y) in pos.items():
+    plt.text(x, y, labels[node], fontsize=10, fontproperties=font_prop, ha='center', va='center')
+
+plt.title("知识图谱（仅展示到1.1层级）", fontproperties=font_prop, fontsize=16)
 plt.axis('off')
 plt.tight_layout()
+plt.savefig("knowledge_graph_limited.png", dpi=300)
 plt.show()
+
 
 ```
 思路总结（支持中文标题、结构识别、知识图谱构建和可视化）
