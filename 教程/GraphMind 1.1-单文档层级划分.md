@@ -1,6 +1,74 @@
 错误
 ```
-TypeError: draw_networkx_labels() got an unexpected keyword argument 'font_properties'
+import pandas as pd
+import networkx as nx
+import matplotlib.pyplot as plt
+from matplotlib.font_manager import FontProperties
+import os
+
+# 读取CSV文件
+file_path = 'csv_files/my_doc.csv'
+df = pd.read_csv(file_path, encoding='utf-8')
+df.columns = ['Title', 'Content']  # 确保列名统一
+
+# 提取文档名
+document_name = os.path.splitext(os.path.basename(file_path))[0]
+
+# 提取编号和标题文本
+def extract_level(title):
+    try:
+        parts = title.strip().split()
+        level = parts[0]
+        text = ''.join(parts[1:])
+        return level, text
+    except:
+        return '', title
+
+df[['Level', 'Text']] = df['Title'].apply(lambda x: pd.Series(extract_level(x)))
+df['FullNode'] = df['Level'] + ' ' + df['Text']
+
+# 构建只包含到二级标题的知识图谱
+G = nx.DiGraph()
+G.add_node(document_name, label=document_name)
+
+level_to_node = {}
+
+for _, row in df.iterrows():
+    level = row['Level']
+    if level.count('.') > 1:
+        continue  # 跳过超过二级标题
+
+    node = row['FullNode']
+    G.add_node(node, label=node)
+
+    if '.' in level:
+        parent_level = '.'.join(level.split('.')[:-1])
+        parent_node = level_to_node.get(parent_level)
+        if parent_node:
+            G.add_edge(parent_node, node)
+    else:
+        G.add_edge(document_name, node)
+
+    level_to_node[level] = node
+
+# 设置中文字体（微软雅黑）
+font_path = "C:/Windows/Fonts/msyh.ttc"
+if not os.path.exists(font_path):
+    font_path = "C:/Windows/Fonts/simhei.ttf"
+font_prop = FontProperties(fname=font_path)
+
+# 绘制图
+plt.figure(figsize=(10, 8))
+pos = nx.spring_layout(G, k=0.6)
+nx.draw(G, pos, with_labels=False, node_size=3000, node_color="lightblue", edge_color="gray", arrows=True)
+labels = {node: node for node in G.nodes()}
+nx.draw_networkx_labels(G, pos, labels, font_size=10, font_properties=font_prop)
+
+plt.title("中文知识图谱（只显示一级与二级标题）", fontproperties=font_prop, fontsize=14)
+plt.axis('off')
+plt.tight_layout()
+plt.show()
+
 ```
 思路总结（支持中文标题、结构识别、知识图谱构建和可视化）
 
