@@ -18,20 +18,21 @@ gpu
 # pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 import os
 import pandas as pd
+from tqdm import tqdm
+from text2vec import SentenceModel
 import torch
 import networkx as nx
 import matplotlib.pyplot as plt
-from tqdm import tqdm
-from sentence_transformers import SentenceTransformer, util
 
-# 设置设备
+# 自动检测 GPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("使用设备：", device)
+print("Using device:", device)
 
-# 加载中文句向量模型
-model = SentenceTransformer("shibing624/text2vec-base-chinese").to(device)
+# 加载中文句向量模型（text2vec）
+model = SentenceModel("shibing624/text2vec-base-chinese")
+model.to(device)
 
-# 读取CSV文件
+# 读取所有 CSV 文件
 directory = 'csv_files'
 dataframes = []
 
@@ -48,174 +49,78 @@ for filename in os.listdir(directory):
 
 combined_df = pd.concat(dataframes, ignore_index=True)
 
-# 段落分割函数
-def split_into_paragraphs(text):
+# 分段函数
+def split_paragraphs(text):
     if isinstance(text, str):
         return [p.strip() for p in text.split('\n') if p.strip()]
     return []
 
-combined_df['Paragraphs'] = combined_df['Content'].apply(split_into_paragraphs)
+combined_df['Paragraphs'] = combined_df['Content'].apply(split_paragraphs)
 
-# 构建知识图谱关系（基于向量相似度）
-all_relationships = []
-
-for _, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="处理文档"):
-    title = row['Title']
-    document = row['Document']
-    paragraphs = row['Paragraphs']
-
-    if len(paragraphs) < 2:
-        continue
-
-    # 编码所有段落向量
-    embeddings = model.encode(paragraphs, convert_to_tensor=True, device=device)
-
-    for i in range(len(paragraphs)):
-        for j in range(i + 1, len(paragraphs)):
-            sim_score = util.cos_sim(embeddings[i], embeddings[j]).item()
-            if sim_score > 0.85:  # 设定包含关系的阈值
-                all_relationships.append({
-                    'source': title,  # 用标题作为节点名
-                    'target': f"{document}-{j}",  # 用文档名+索引区分段落
-                    'relation': '包含关系',
-                    'score': sim_score
-                })
-
-# 构建图
-G = nx.Graph()
-for rel in all_relationships:
-    G.add_node(rel['source'], label=rel['source'])
-    G.add_node(rel['target'], label=rel['target'])
-    G.add_edge(rel['source'], rel['target'], relation=rel['relation'], score=rel['score'])
-
-# 打印信息
-print(f"节点数: {G.number_of_nodes()}")
-print(f"边数: {G.number_of_edges()}")
-
-# 保存图
-nx.write_gml(G, "knowledge_graph.gml")
-
-# 可视化图（中文支持）
-plt.figure(figsize=(12, 12))
-pos = nx.spring_layout(G, k=0.5)
-nx.draw(G, pos, with_labels=True, font_family='SimHei', font_size=10, node_color='skyblue')
-plt.title("知识图谱（包含关系）", fontproperties="SimHei")
-plt.show()
-
-```
-new
-```
-import os
-import pandas as pd
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import networkx as nx
-import torch
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-import matplotlib
-
-# 设置中文字体（避免节点标签显示空方框）
-matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 使用黑体
-matplotlib.rcParams['axes.unicode_minus'] = False
-
-# 加载预训练模型
-model_name = "bert-base-chinese"
-model = AutoModelForSequenceClassification.from_pretrained(model_name)
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-# 读取多个 CSV 文件
-directory = 'csv_files'
-dataframes = []
-
-for filename in os.listdir(directory):
-    if filename.endswith('.csv'):
-        filepath = os.path.join(directory, filename)
-        try:    
-            df = pd.read_csv(filepath, on_bad_lines='skip', encoding='utf-8')
-            df.columns = ['Title', 'Content']  # 假设每个 CSV 都是两列：标题、内容
-            df['Document'] = filename
-            dataframes.append(df)
-        except Exception as e:
-            print(f"读取失败: {filename}, 错误: {e}")
-
-combined_df = pd.concat(dataframes, ignore_index=True)
-
-# 定义段落分割函数
-def split_into_paragraphs(text):
-    if isinstance(text, str):
-        return [para.strip() for para in text.split('\n') if para.strip()]
-    else:
-        return []
-
-combined_df['Paragraphs'] = combined_df['Content'].apply(lambda x: split_into_paragraphs(str(x)))
-
-# 使用 BERT 模型提取段落之间的关系
+# 关系提取（基于句向量夹角距离）
 def extract_relationships(paragraphs, title, document):
     relationships = []
-    for i, para in enumerate(tqdm(paragraphs, desc=f'处理段落: {title}')):
-        for j, other_para in enumerate(paragraphs):
-            if i != j:
-                inputs = tokenizer(para, other_para, return_tensors="pt", padding=True, truncation=True, max_length=512)
-                with torch.no_grad():
-                    outputs = model(**inputs)
-                score = outputs.logits[0][1].item()
-                if score > 0.5:
-                    relationships.append({
-                        'source': title,
-                        'target': title,  # 所有段落都归属这个标题，所以显示同一个标题
-                        'relation': '相关段落',
-                        'score': score,
-                        'document': document
-                    })
+    if len(paragraphs) < 2:
+        return relationships
+    embeddings = model.encode(paragraphs, device=device)
+    for i in range(len(paragraphs)):
+        for j in range(i + 1, len(paragraphs)):
+            sim = torch.cosine_similarity(
+                torch.tensor(embeddings[i]), 
+                torch.tensor(embeddings[j]), 
+                dim=0
+            ).item()
+            if sim > 0.85:  # 阈值可调
+                relationships.append({
+                    'source': title + f"_段落{i+1}",
+                    'target': title + f"_段落{j+1}",
+                    'relation': '包含/相关',
+                    'score': round(sim, 3),
+                    'document': document
+                })
     return relationships
 
-# 构建知识图谱，只保留标题作为节点
+# 构建知识图谱
 all_relationships = []
-node_titles = set()
+titles_used = set()
 
-for _, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="总进度"):
+for _, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="总文档进度"):
     title = row['Title']
     document = row['Document']
     paragraphs = row['Paragraphs']
-    node_titles.add(title)
     relationships = extract_relationships(paragraphs, title, document)
     all_relationships.extend(relationships)
+    titles_used.add(title)
 
 # 构建 NetworkX 图
 G = nx.Graph()
 
-# 添加节点
-for title in node_titles:
-    G.add_node(title, label=title)
-
-# 添加边（按标题连接）
 for rel in all_relationships:
+    G.add_node(rel['source'], label=rel['source'].split("_")[0])
+    G.add_node(rel['target'], label=rel['target'].split("_")[0])
     G.add_edge(rel['source'], rel['target'], relation=rel['relation'], score=rel['score'])
 
 # 输出图信息
-print(f"节点数量: {G.number_of_nodes()}")
-print(f"边数量: {G.number_of_edges()}")
+print(f"节点数: {G.number_of_nodes()}")
+print(f"边数: {G.number_of_edges()}")
 
-# 保存图为 GML 文件
+# 保存图
 nx.write_gml(G, 'knowledge_graph.gml')
 
-# 可视化（仅显示标题作为节点标签）
-plt.figure(figsize=(12, 12))
-pos = nx.spring_layout(G, k=0.5)
-nx.draw(
-    G,
-    pos,
-    with_labels=True,
-    labels={node: node for node in G.nodes()},
-    node_size=800,
-    node_color='lightblue',
-    font_size=10,
-    font_weight='bold',
-    edge_color='gray'
-)
-plt.title('知识图谱（按标题）')
-plt.show()
+# 可视化
+plt.figure(figsize=(14, 10))
+pos = nx.spring_layout(G, seed=42)
+nx.draw_networkx_nodes(G, pos, node_color='skyblue', node_size=1000)
+nx.draw_networkx_edges(G, pos, edge_color='gray')
+nx.draw_networkx_labels(G, pos, font_family='SimHei', font_size=10)
+edge_labels = nx.get_edge_attributes(G, 'score')
+nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8)
 
+plt.title("中文知识图谱（基于段落相似关系）", fontsize=14)
+plt.axis('off')
+plt.tight_layout()
+plt.savefig("knowledge_graph.png", dpi=300)
+plt.show()
 
 ```
 ```python
