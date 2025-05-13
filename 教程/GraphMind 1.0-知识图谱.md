@@ -1,3 +1,9 @@
+| 模型                                     | 描述                           | 特点                | 是否开箱即用    |
+| -------------------------------------- | ---------------------------- | ----------------- | --------- |
+| **`uer/sbert-base-chinese-nli`**       | 中文 Sentence-BERT 微调于 NLI 数据集 | 能识别“包含”、“矛盾”、“中立” | ✅         |
+| **`Langboat/mengzi-sim-base`**         | 适用于相似度、蕴含推理                  | 对句对关系建模较好         | ✅         |
+| **`hfl/chinese-roberta-wwm-ext` + 微调** | 华为中文 RoBERTa                 | 精度高，可训练为蕴含分类器     | ❌（需你手动微调） |
+
 gpu
 ```
 # pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
