@@ -6,13 +6,19 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import networkx as nx
 import torch
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+import matplotlib
+
+# 设置中文字体（避免节点标签显示空方框）
+matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 使用黑体
+matplotlib.rcParams['axes.unicode_minus'] = False
 
 # 加载预训练模型
-model_name = "bert-base-chinese"  # 可以根据需要调整
+model_name = "bert-base-chinese"
 model = AutoModelForSequenceClassification.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-# 读取多个 CSV 文件并合并为一个 DataFrame
+# 读取多个 CSV 文件
 directory = 'csv_files'
 dataframes = []
 
@@ -20,76 +26,89 @@ for filename in os.listdir(directory):
     if filename.endswith('.csv'):
         filepath = os.path.join(directory, filename)
         try:    
-            df = pd.read_csv(filepath,on_bad_lines='skip',encoding ='utf-8')
-            df.columns = ['Title', 'Content']  # 确保列名一致
-            df['Document'] = filename  # 添加一个列记录文件名
+            df = pd.read_csv(filepath, on_bad_lines='skip', encoding='utf-8')
+            df.columns = ['Title', 'Content']  # 假设每个 CSV 都是两列：标题、内容
+            df['Document'] = filename
             dataframes.append(df)
         except Exception as e:
-            print(f"读取失败:{filename},错误:{e}")
+            print(f"读取失败: {filename}, 错误: {e}")
 
 combined_df = pd.concat(dataframes, ignore_index=True)
 
 # 定义段落分割函数
 def split_into_paragraphs(text):
-    if isinstance(text,str):
+    if isinstance(text, str):
         return [para.strip() for para in text.split('\n') if para.strip()]
     else:
-        return[]
+        return []
 
-combined_df['Paragraphs'] = combined_df['Content'].apply(lambda x:split_into_paragraphs(str(x)))
+combined_df['Paragraphs'] = combined_df['Content'].apply(lambda x: split_into_paragraphs(str(x)))
 
 # 使用 BERT 模型提取段落之间的关系
 def extract_relationships(paragraphs, title, document):
     relationships = []
-    for i, para in enumerate(tqdm(paragraphs,desc=f'Processing para in {document}')):
-        # 每个段落和其它段落之间进行关系推理
+    for i, para in enumerate(tqdm(paragraphs, desc=f'处理段落: {title}')):
         for j, other_para in enumerate(paragraphs):
             if i != j:
-                # 构造输入文本对
-                inputs = tokenizer(para, other_para, return_tensors="pt", padding=True, truncation=True)
-                outputs = model(**inputs)
-                score = outputs.logits[0][1].item()  # 假设我们关心的是相关性的分数
-                if score > 0.5:  # 选择一个阈值来判断是否为相关段落
+                inputs = tokenizer(para, other_para, return_tensors="pt", padding=True, truncation=True, max_length=512)
+                with torch.no_grad():
+                    outputs = model(**inputs)
+                score = outputs.logits[0][1].item()
+                if score > 0.5:
                     relationships.append({
-                        'source': para,
-                        'target': other_para,
-                        'relation': 'related',  # 可以根据具体的任务修改关系描述
+                        'source': title,
+                        'target': title,  # 所有段落都归属这个标题，所以显示同一个标题
+                        'relation': '相关段落',
                         'score': score,
                         'document': document
                     })
     return relationships
 
-# 构建知识图谱
+# 构建知识图谱，只保留标题作为节点
 all_relationships = []
-for _, row in tqdm(combined_df.iterrows(),total=len(combined_df),desc="总文档处理进度"):
+node_titles = set()
+
+for _, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="总进度"):
     title = row['Title']
     document = row['Document']
     paragraphs = row['Paragraphs']
+    node_titles.add(title)
     relationships = extract_relationships(paragraphs, title, document)
     all_relationships.extend(relationships)
 
-# 创建 NetworkX 图
+# 构建 NetworkX 图
 G = nx.Graph()
 
-# 添加节点和边
+# 添加节点
+for title in node_titles:
+    G.add_node(title, label=title)
+
+# 添加边（按标题连接）
 for rel in all_relationships:
-    G.add_node(rel['source'], label=rel['source'])
-    G.add_node(rel['target'], label=rel['target'])
     G.add_edge(rel['source'], rel['target'], relation=rel['relation'], score=rel['score'])
 
-# 输出知识图谱的一些基本信息
-print(f"Number of nodes: {G.number_of_nodes()}")
-print(f"Number of edges: {G.number_of_edges()}")
+# 输出图信息
+print(f"节点数量: {G.number_of_nodes()}")
+print(f"边数量: {G.number_of_edges()}")
 
-# 可选：保存为图数据文件
+# 保存图为 GML 文件
 nx.write_gml(G, 'knowledge_graph.gml')
 
-# 可视化知识图谱（可选）
-import matplotlib.pyplot as plt
-pos = nx.spring_layout(G)
+# 可视化（仅显示标题作为节点标签）
 plt.figure(figsize=(12, 12))
-nx.draw(G, pos, with_labels=True, node_size=500, node_color='skyblue', font_size=10, font_weight='bold')
-plt.title('Knowledge Graph')
+pos = nx.spring_layout(G, k=0.5)
+nx.draw(
+    G,
+    pos,
+    with_labels=True,
+    labels={node: node for node in G.nodes()},
+    node_size=800,
+    node_color='lightblue',
+    font_size=10,
+    font_weight='bold',
+    edge_color='gray'
+)
+plt.title('知识图谱（按标题）')
 plt.show()
 
 
