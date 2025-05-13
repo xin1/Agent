@@ -37,61 +37,81 @@ TypeError: draw_networkx_labels() got an unexpected keyword argument 'font_prope
 需要把你的CSV文件命名为例如：`my_doc.csv`（第一列为标题，第二列为内容），并运行下面的代码：
 
 ```python
+import os
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
-from matplotlib import font_manager as fm
-import os
+import matplotlib
+from tqdm import tqdm
 
-# 中文字体路径（换成你系统中的路径）
-font_path = "C:/Windows/Fonts/msyh.ttc"  # Windows 下的微软雅黑路径
-my_font = fm.FontProperties(fname=font_path)
+# 设置中文字体（Windows 推荐使用 SimHei 或 Microsoft YaHei）
+matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 中文显示
+matplotlib.rcParams['axes.unicode_minus'] = False     # 负号不乱码
 
-# 加载 CSV 数据
-df = pd.read_csv("your_file.csv", encoding='utf-8')
-df.columns = ['Title', 'Content']
+# 路径设置
+folder = 'csv_files/my_doc'
+dataframes = []
 
-# 提取标题层级
-def get_title_level(title):
-    return len(str(title).split('.'))
+# 读取 CSV 文件
+for filename in os.listdir(folder):
+    if filename.endswith('.csv'):
+        filepath = os.path.join(folder, filename)
+        try:
+            df = pd.read_csv(filepath, on_bad_lines='skip', encoding='utf-8')
+            df.columns = ['Title', 'Content']  # 假设标题列在前
+            df['Document'] = filename.replace('.csv', '')
+            dataframes.append(df)
+        except Exception as e:
+            print(f"读取失败: {filename}, 错误: {e}")
 
-def build_hierarchy(df):
-    df['Level'] = df['Title'].apply(get_title_level)
-    df['Node'] = df['Title'] + ' ' + df['Content'].str.slice(0, 10)
-    edges = []
-    stack = []
-    for _, row in df.iterrows():
-        level = row['Level']
-        while stack and stack[-1]['Level'] >= level:
-            stack.pop()
-        if stack:
-            parent = stack[-1]
-            edges.append((parent['Node'], row['Node']))
-        stack.append(row)
-    return df, edges
+combined_df = pd.concat(dataframes, ignore_index=True)
 
-df, edges = build_hierarchy(df)
+# 提取层级关系
+def get_parent_title(title):
+    parts = title.split('.')
+    if len(parts) == 1:
+        return None
+    return '.'.join(parts[:-1])
 
-# 构建图
+# 构建图谱
 G = nx.DiGraph()
-for _, row in df.iterrows():
-    G.add_node(row['Node'])
 
-for src, dst in edges:
-    G.add_edge(src, dst, relation='包含')
+for _, row in tqdm(combined_df.iterrows(), total=len(combined_df), desc="构建知识图谱"):
+    raw_title = str(row['Title']).strip()
+    content = str(row['Content']).strip()
+    doc = row['Document']
+
+    # 节点名称可为“标题名 + 内容摘要”，也可只用标题名
+    full_title = f"{raw_title}"  # 只显示编号 + 标题，不展示正文内容
+    parent = get_parent_title(raw_title)
+
+    # 添加节点
+    G.add_node(full_title, label=full_title, content=content)
+
+    # 添加文档顶层链接
+    if parent:
+        G.add_edge(parent, full_title)
+    else:
+        G.add_edge(doc, full_title)
+        G.add_node(doc)  # 文档名作为最上层节点
+
+# 图谱信息
+print(f"共 {G.number_of_nodes()} 个节点，{G.number_of_edges()} 条边")
 
 # 可视化
-plt.figure(figsize=(14, 12))
-pos = nx.spring_layout(G, k=0.8)
-nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=1000)
+plt.figure(figsize=(15, 10))
+pos = nx.spring_layout(G, k=0.5)
+nx.draw_networkx_nodes(G, pos, node_size=500, node_color='lightblue')
 nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=15)
-nx.draw_networkx_labels(G, pos, font_properties=my_font, font_size=10)
+nx.draw_networkx_labels(G, pos, labels={n: n for n in G.nodes()}, font_size=10)
 
-plt.title("中文知识图谱：标题层级结构", fontproperties=my_font, fontsize=16)
+plt.title("中文知识图谱：标题层级结构", fontsize=14)
 plt.axis('off')
 plt.tight_layout()
-plt.savefig("knowledge_graph_fixed_cn.png", dpi=300)
 plt.show()
+
+# 可选：保存图数据
+nx.write_gml(G, 'title_knowledge_graph.gml')
 
 ```
 
