@@ -40,33 +40,28 @@ TypeError: draw_networkx_labels() got an unexpected keyword argument 'font_prope
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
+import matplotlib
 import os
-from matplotlib.font_manager import FontProperties
 
-# 设置中文字体（根据系统路径自行修改）
-# Windows系统中文字体路径举例（仿宋、微软雅黑等）
-font_path = "C:/Windows/Fonts/simhei.ttf"  # 你可以改成你系统有的字体路径
-font_prop = FontProperties(fname=font_path)
+# 设置全局中文字体（推荐：simhei、msyh、SimSun）
+matplotlib.rcParams['font.family'] = 'SimHei'  # 黑体。你可以替换为系统中的其他中文字体
 
-# 读取 CSV 文件
-csv_path = 'your_file.csv'  # 修改为你的文件路径
+# 读取 CSV 文件（第一列是标题，第二列是内容）
+csv_path = 'your_file.csv'  # 修改为你的CSV文件路径
 df = pd.read_csv(csv_path, encoding='utf-8')
-
-# 标准化列名
 df.columns = ['Title', 'Content']
 
-# 提取标题层级
+# 获取标题层级（1、1.1、1.2.3等）
 def get_title_level(title):
-    parts = str(title).split('.')
-    return len(parts)
+    return len(str(title).split('.'))
 
-# 建立包含层级映射关系
+# 构建层级关系
 def build_hierarchy(df):
     df['Level'] = df['Title'].apply(get_title_level)
-    df['Node'] = df['Title'] + ' ' + df['Content'].str.slice(0, 15)  # 节点显示前15字
+    df['Node'] = df['Title'] + ' ' + df['Content'].str.slice(0, 15)  # 每个节点显示前15个字符内容
     edges = []
+    stack = []
 
-    stack = []  # 存储当前各级别的上一个标题
     for _, row in df.iterrows():
         current_level = row['Level']
         while stack and stack[-1]['Level'] >= current_level:
@@ -75,32 +70,31 @@ def build_hierarchy(df):
             parent = stack[-1]
             edges.append((parent['Node'], row['Node']))
         stack.append(row)
-
     return df, edges
 
 # 构建图
 df, edges = build_hierarchy(df)
 G = nx.DiGraph()
 for _, row in df.iterrows():
-    G.add_node(row['Node'], label=row['Title'])
+    G.add_node(row['Node'])
 
 for src, dst in edges:
     G.add_edge(src, dst, relation='包含')
 
-# 可视化图
+# 可视化
 plt.figure(figsize=(14, 12))
-pos = nx.spring_layout(G, k=0.5, iterations=50)
-nx.draw_networkx_nodes(G, pos, node_size=1000, node_color='lightblue')
+pos = nx.spring_layout(G, k=0.5)
+nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=1000)
 nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=15)
-nx.draw_networkx_labels(G, pos, font_size=10, font_properties=font_prop)
+nx.draw_networkx_labels(G, pos, font_size=10)  # 中文显示依赖于全局 font.family 设置
 
-plt.title("知识图谱：层级包含关系", fontproperties=font_prop, fontsize=16)
+plt.title("中文知识图谱：标题层级包含关系", fontsize=16)
 plt.axis('off')
 plt.tight_layout()
-plt.savefig("knowledge_graph_cn.png", dpi=300)
+plt.savefig("knowledge_graph_cn_fixed.png", dpi=300)
 plt.show()
 
-# 可选：保存为 GML 图文件
+# 可选：保存为 GML 图
 nx.write_gml(G, "knowledge_graph_cn.gml")
 
 ```
