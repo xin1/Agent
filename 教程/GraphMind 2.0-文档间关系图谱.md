@@ -1,3 +1,7 @@
+错误
+```
+ModuleNotFoundError: No module named 'frontend'
+```
 好的，以下是基于本地大模型（如 [ChatGLM3](https://github.com/THUDM/ChatGLM3)）分析多个 PDF 文档、生成文档标签与关系图谱，并导出为 Dify 可读格式的完整开发流程和参考代码框架：
 
 ---
