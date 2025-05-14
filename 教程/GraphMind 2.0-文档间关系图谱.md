@@ -1,3 +1,4 @@
+```
 Traceback (most recent call last):
   File "d:\Gradio\code\Graph_Mind\document_graph_project\run.py", line 10, in <module>
     raw = summarize_and_tag(text)
@@ -18,6 +19,7 @@ Traceback (most recent call last):
   File "D:\Gradio\code\.venv\lib\site-packages\torch\nn\modules\module.py", line 1940, in __getattr__
     raise AttributeError(
 AttributeError: 'ChatGLMForConditionalGeneration' object has no attribute '_extract_past_from_model_output'
+```
 
 你遇到的错误是因为 `ChatGLM3` 并不是 `AutoModelForSeq2SeqLM` 类型，而是 `AutoModel` 类型，并不支持标准的 `.generate()` 接口。我们需要用它自己的对话接口来实现内容总结与标签提取，同时控制输入长度以避免 OOM 或 `max_length` 报错。
 
