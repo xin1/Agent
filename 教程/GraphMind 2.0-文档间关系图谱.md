@@ -1,5 +1,7 @@
 更新  
 ```
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 202.00 MiB. GPU 0 has a total capacity of 44.67 GiB of which 171.50 MiB is free. Of the allocated memory 13.67 GiB is allocated by PyTorch, and 531.94 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
 ValueError: Input length of input_ids is 14317, but `max_length` is set to 8192. This can lead to unexpected behavior. You should consider increasing `max_length` or, better yet, setting `max_new_tokens`
 AttributeError: 'ChatGLMForConditionalGeneration' object has no attribute '_extract_past_from_model_output'
 Traceback (most recent call last):
