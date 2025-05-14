@@ -38,34 +38,32 @@ AttributeError: module 'fitz' has no attribute 'open'
 from transformers import AutoTokenizer, AutoModel
 import torch
 
-# 加载 ChatGLM3 模型（本地部署，建议使用 GPU）
 tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
 model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True).half().cuda()
 model.eval()
 
-# 设置最大 tokens 长度（ChatGLM3 支持 8192）
-MAX_TOKENS = 8192
+MAX_TOKENS = 6000
 
-def truncate_text_by_tokens(text, tokenizer, max_tokens=MAX_TOKENS - 512):
-    """按 tokens 截断文本，确保输入不超长"""
+def split_text_by_tokens(text, tokenizer, max_tokens=MAX_TOKENS):
     tokens = tokenizer.tokenize(text)
-    if len(tokens) > max_tokens:
-        tokens = tokens[:max_tokens]
-    truncated_text = tokenizer.convert_tokens_to_string(tokens)
-    return truncated_text
+    chunks = [tokens[i:i + max_tokens] for i in range(0, len(tokens), max_tokens)]
+    return [tokenizer.convert_tokens_to_string(chunk) for chunk in chunks]
 
 def summarize_and_tag(text):
-    """传入原始文本，输出 ChatGLM 的总结和标签响应"""
-    text = truncate_text_by_tokens(text, tokenizer)
+    parts = split_text_by_tokens(text, tokenizer)
+    summaries = []
+    tags_set = set()
 
-    prompt = f"""请阅读以下文档内容，提取关键信息，并总结要点，给出3-5个标签，用【总结】和【标签】标注输出：
-{text}
-"""
-    response, _ = model.chat(tokenizer, prompt, history=[])
-    return response
+    for part in parts:
+        prompt = f"请阅读以下文档片段，提取要点并给出3-5个标签，用【总结】和【标签】标注：\n{part}"
+        response, _ = model.chat(tokenizer, prompt, history=[])
+        summary, tags = parse_summary_and_labels(response)
+        summaries.append(summary)
+        tags_set.update(tags)
+
+    return "\n".join(summaries), list(tags_set)
 
 def parse_summary_and_labels(text):
-    """解析模型输出中的总结与标签"""
     summary = ""
     tags = []
     if "【总结】" in text and "【标签】" in text:
@@ -73,6 +71,7 @@ def parse_summary_and_labels(text):
         tag_text = text.split("【标签】")[1].strip()
         tags = [t.strip("，,、") for t in tag_text.replace("\n", " ").split() if t.strip()]
     return summary, tags
+
 
 ```
 
