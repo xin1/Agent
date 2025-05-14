@@ -1,3 +1,126 @@
+更新
+你的错误是因为在 `app.analyze_docs` 模块中没有定义名为 `parse_summary_and_labels` 的函数，但你在 `run.py` 中尝试导入它。下面是解决方案和建议的标准项目结构。
+
+---
+
+## ✅ 改进建议与项目结构
+
+我们要构建的完整流程：
+
+1. **提取 PDF 文本**（extract\_text.py）
+2. **用大模型摘要和打标签**（analyze\_docs.py）
+3. **解析摘要与标签**（新增：parse\_summary\_and\_labels函数）
+4. **构建文档关系图谱**（build\_graph.py）
+5. **导出 Dify 可读格式**（export\_dify.py）
+6. **可选：Gradio 或 Streamlit 前端交互**（后续可添加）
+
+---
+
+## ✅ 修复方案与完整代码
+
+### 🔧 1. `analyze_docs.py` 示例
+
+```python
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import torch
+
+# 加载大模型（建议使用 BAAI/bge-large-zh 或 ChatGLM3 本地部署）
+tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
+model = AutoModelForSeq2SeqLM.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True, device_map="auto").eval()
+
+def summarize_and_tag(text):
+    prompt = f"""请阅读以下文档内容，提取关键信息，并总结要点，给出3-5个标签，用【总结】和【标签】标注输出：
+{text}
+"""
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
+    with torch.no_grad():
+        outputs = model.generate(**inputs, max_new_tokens=512)
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+def parse_summary_and_labels(text):
+    summary = ""
+    tags = []
+    if "【总结】" in text and "【标签】" in text:
+        summary = text.split("【总结】")[1].split("【标签】")[0].strip()
+        tag_text = text.split("【标签】")[1].strip()
+        tags = [t.strip("，, ") for t in tag_text.split() if t.strip()]
+    return summary, tags
+```
+
+---
+
+### ✅ 2. run.py 示例（整体调度）
+
+```python
+from app.extract_text import load_all_pdfs
+from app.analyze_docs import summarize_and_tag, parse_summary_and_labels
+from app.build_graph import build_doc_graph
+from app.export_dify import export_to_dify_format
+
+pdf_texts = load_all_pdfs("data/pdfs")
+doc_infos = {}
+
+for fname, text in pdf_texts.items():
+    raw = summarize_and_tag(text)
+    summary, tags = parse_summary_and_labels(raw)
+    doc_infos[fname] = {"summary": summary, "tags": tags}
+
+build_doc_graph(doc_infos)
+export_to_dify_format(doc_infos)
+```
+
+---
+
+### ✅ 3. extract\_text.py
+
+```python
+import fitz  # PyMuPDF
+import os
+
+def extract_text_from_pdf(pdf_path):
+    doc = fitz.open(pdf_path)
+    return "\n".join([page.get_text() for page in doc])
+
+def load_all_pdfs(folder):
+    texts = {}
+    for fname in os.listdir(folder):
+        if fname.endswith(".pdf"):
+            full_path = os.path.join(folder, fname)
+            texts[fname] = extract_text_from_pdf(full_path)
+    return texts
+```
+
+---
+
+### ✅ 4. 项目结构建议
+
+```
+document_graph_project/
+├── app/
+│   ├── __init__.py
+│   ├── extract_text.py
+│   ├── analyze_docs.py
+│   ├── build_graph.py
+│   ├── export_dify.py
+├── data/
+│   └── pdfs/
+├── output/
+│   └── doc_graph.html
+├── run.py
+```
+
+---
+
+## 💡 注意事项
+
+* 使用 `chatglm3-6b` 模型请确保环境中支持 FP16/GPU 推理。
+* 如果模型太大，可以使用 `bge-large-zh`, `text2vec`, 或其它轻量模型+向量匹配。
+* 可选加入 Gradio 做可视化界面。
+
+---
+
+是否需要我继续提供 `build_graph.py`（生成交互式网页图谱）和 `export_dify.py`（导出为Dify格式）示例代码？我可以继续整理补充。
+
 错误
 ```
 ModuleNotFoundError: No module named 'frontend'
