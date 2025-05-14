@@ -1,4 +1,14 @@
-更新
+更新  
+```
+Traceback (most recent call last):
+  File "d:\Gradio\code\Graph_Mind\document_graph_project\run.py", line 6, in <module>
+    pdf_texts = load_all_pdfs("data/pdfs")
+  File "d:\Gradio\code\Graph_Mind\document_graph_project\app\extract_text.py", line 13, in load_all_pdfs
+    texts[fname] = extract_text_from_pdf(full_path)
+  File "d:\Gradio\code\Graph_Mind\document_graph_project\app\extract_text.py", line 5, in extract_text_from_pdf
+    doc = fitz.open(pdf_path)
+AttributeError: module 'fitz' has no attribute 'open'
+```
 你的错误是因为在 `app.analyze_docs` 模块中没有定义名为 `parse_summary_and_labels` 的函数，但你在 `run.py` 中尝试导入它。下面是解决方案和建议的标准项目结构。
 
 ---
