@@ -1,3 +1,24 @@
+Traceback (most recent call last):
+  File "d:\Gradio\code\Graph_Mind\document_graph_project\run.py", line 10, in <module>
+    raw = summarize_and_tag(text)
+  File "d:\Gradio\code\Graph_Mind\document_graph_project\app\analyze_docs.py", line 29, in summarize_and_tag
+    response, _ = model.chat(tokenizer, prompt, history=[])
+  File "D:\Gradio\code\.venv\lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "C:\Users\Administrator\.cache\huggingface\modules\transformers_modules\THUDM\chatglm3-6b\e9e0406d062cdb887444fe5bd546833920abd4ac\modeling_chatglm.py", line 1056, in chat 
+    outputs = self.generate(**inputs, **gen_kwargs, eos_token_id=eos_token_id)
+  File "D:\Gradio\code\.venv\lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "D:\Gradio\code\.venv\lib\site-packages\transformers\generation\utils.py", line 2465, in generate
+    result = self._sample(
+  File "D:\Gradio\code\.venv\lib\site-packages\transformers\generation\utils.py", line 3437, in _sample
+    model_kwargs = self._update_model_kwargs_for_generation(
+  File "C:\Users\Administrator\.cache\huggingface\modules\transformers_modules\THUDM\chatglm3-6b\e9e0406d062cdb887444fe5bd546833920abd4ac\modeling_chatglm.py", line 880, in _update_model_kwargs_for_generation
+    model_kwargs["past_key_values"] = self._extract_past_from_model_output(
+  File "D:\Gradio\code\.venv\lib\site-packages\torch\nn\modules\module.py", line 1940, in __getattr__
+    raise AttributeError(
+AttributeError: 'ChatGLMForConditionalGeneration' object has no attribute '_extract_past_from_model_output'
+
 你遇到的错误是因为 `ChatGLM3` 并不是 `AutoModelForSeq2SeqLM` 类型，而是 `AutoModel` 类型，并不支持标准的 `.generate()` 接口。我们需要用它自己的对话接口来实现内容总结与标签提取，同时控制输入长度以避免 OOM 或 `max_length` 报错。
 
 以下是完整的项目结构与修复后的代码流程：
