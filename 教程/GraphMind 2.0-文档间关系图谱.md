@@ -36,12 +36,26 @@ AttributeError: module 'fitz' has no attribute 'open'
 from transformers import AutoTokenizer, AutoModel
 import torch
 
-# 加载 ChatGLM3 模型
+# 加载 ChatGLM3 模型（本地部署，建议使用 GPU）
 tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
 model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True).half().cuda()
 model.eval()
 
+# 设置最大 tokens 长度（ChatGLM3 支持 8192）
+MAX_TOKENS = 8192
+
+def truncate_text_by_tokens(text, tokenizer, max_tokens=MAX_TOKENS - 512):
+    """按 tokens 截断文本，确保输入不超长"""
+    tokens = tokenizer.tokenize(text)
+    if len(tokens) > max_tokens:
+        tokens = tokens[:max_tokens]
+    truncated_text = tokenizer.convert_tokens_to_string(tokens)
+    return truncated_text
+
 def summarize_and_tag(text):
+    """传入原始文本，输出 ChatGLM 的总结和标签响应"""
+    text = truncate_text_by_tokens(text, tokenizer)
+
     prompt = f"""请阅读以下文档内容，提取关键信息，并总结要点，给出3-5个标签，用【总结】和【标签】标注输出：
 {text}
 """
@@ -49,13 +63,13 @@ def summarize_and_tag(text):
     return response
 
 def parse_summary_and_labels(text):
+    """解析模型输出中的总结与标签"""
     summary = ""
     tags = []
     if "【总结】" in text and "【标签】" in text:
         summary = text.split("【总结】")[1].split("【标签】")[0].strip()
         tag_text = text.split("【标签】")[1].strip()
-        # 自动按中文顿号、逗号、空格等分词
-        tags = [t.strip("，, 、") for t in tag_text.replace("\n", " ").split() if t.strip()]
+        tags = [t.strip("，,、") for t in tag_text.replace("\n", " ").split() if t.strip()]
     return summary, tags
 
 ```
