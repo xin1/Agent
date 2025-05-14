@@ -1,5 +1,6 @@
 更新  
 ```
+AttributeError: 'ChatGLMForConditionalGeneration' object has no attribute '_extract_past_from_model_output'
 Traceback (most recent call last):
   File "d:\Gradio\code\Graph_Mind\document_graph_project\run.py", line 6, in <module>
     pdf_texts = load_all_pdfs("data/pdfs")
