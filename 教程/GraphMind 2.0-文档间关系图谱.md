@@ -1,5 +1,6 @@
 更新  
 ```
+ValueError: Input length of input_ids is 14317, but `max_length` is set to 8192. This can lead to unexpected behavior. You should consider increasing `max_length` or, better yet, setting `max_new_tokens`
 AttributeError: 'ChatGLMForConditionalGeneration' object has no attribute '_extract_past_from_model_output'
 Traceback (most recent call last):
   File "d:\Gradio\code\Graph_Mind\document_graph_project\run.py", line 6, in <module>
