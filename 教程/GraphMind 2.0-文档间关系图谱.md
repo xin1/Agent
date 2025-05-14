@@ -32,21 +32,20 @@ AttributeError: module 'fitz' has no attribute 'open'
 ### 🔧 1. `analyze_docs.py` 示例
 
 ```python
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import AutoTokenizer, AutoModel
 import torch
 
-# 加载大模型（建议使用 BAAI/bge-large-zh 或 ChatGLM3 本地部署）
+# 加载 ChatGLM3 模型
 tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
-model = AutoModelForSeq2SeqLM.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True, device_map="auto").eval()
+model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True).half().cuda()
+model.eval()
 
 def summarize_and_tag(text):
     prompt = f"""请阅读以下文档内容，提取关键信息，并总结要点，给出3-5个标签，用【总结】和【标签】标注输出：
 {text}
 """
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
-    with torch.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=512)
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    response, _ = model.chat(tokenizer, prompt, history=[])
+    return response
 
 def parse_summary_and_labels(text):
     summary = ""
@@ -54,8 +53,10 @@ def parse_summary_and_labels(text):
     if "【总结】" in text and "【标签】" in text:
         summary = text.split("【总结】")[1].split("【标签】")[0].strip()
         tag_text = text.split("【标签】")[1].strip()
-        tags = [t.strip("，, ") for t in tag_text.split() if t.strip()]
+        # 自动按中文顿号、逗号、空格等分词
+        tags = [t.strip("，, 、") for t in tag_text.replace("\n", " ").split() if t.strip()]
     return summary, tags
+
 ```
 
 ---
