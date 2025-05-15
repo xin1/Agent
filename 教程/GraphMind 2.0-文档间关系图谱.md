@@ -18,7 +18,7 @@ document_graph_project/
 ## 📦 安装依赖（requirements.txt）
 
 ```txt
-transformers=4.38.3
+transformers==4.38.3
 # 按理说应该>=4.39.3，但是出现报错AttributeError: 'ChatGLMForConditionalGeneration' object has no attribute '_extract_past_from_model_output'，所以改成4.38.3了
 torch>=2.1.0
 cpm_kernels
