@@ -1,4 +1,14 @@
 ```
+RuntimeError: The following operation failed in the TorchScript interpreter.
+Traceback of TorchScript (most recent call last):
+  File "C:\Users\Administrator\.cache\huggingface\modules\transformers_modules\THUDM\chatglm3-6b\e9e0406d062cdb887444fe5bd546833920abd4ac\modeling_chatglm.py", line 182, in apply_rotary_pos_emb
+    )
+    x_out2 = x_out2.flatten(3)
+    return torch.cat((x_out2, x_pass), dim=-1)
+           ~~~~~~~~~ <--- HERE
+RuntimeError: CUDA out of memory. Tried to allocate 20.00 MiB. GPU 0 has a total capacity of 44.67 GiB of which 18.94 MiB is free. Of the allocated memory 12.13 GiB is allocated by PyTorch, and 27.33 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)   
+
+
 RuntimeError:
         An attempt has been made to start a new process before the
         current process has finished its bootstrapping phase.
