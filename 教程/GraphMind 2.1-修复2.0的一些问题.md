@@ -127,6 +127,7 @@ if __name__ == "__main__":
 
 ```
 
+
 ---
 
 ## ⚠️ 注意事项
@@ -152,4 +153,107 @@ if __name__ == "__main__":
 ---
 
 如需支持显卡手动指定，或结合 `ray` / `deepspeed` / `accelerate` 优化模型加载，也可以再进一步升级。是否需要我提供 `ray` 并行框架的版本？
+明白了！你已经解决了并行多GPU执行问题，但**生成的知识图谱中，文档节点之间没有“边”**（如“同属产品”、“内容相关”、“包含”等关系）。
+
+---
+
+## 🧠 问题本质：
+
+目前的 `build_doc_graph.py` 脚本 **只是将每个文档作为一个独立节点**，并未分析文档间的语义关系，因此图中是“无边孤岛”。
+
+---
+
+## ✅ 目标：
+
+你希望自动判断 **文档之间的语义关系（如主题相近、内容包含、来自同一产品线）**，并在图中添加 **边（Edge）** 表示这些关系。
+
+---
+
+## ✅ 改进思路：
+
+我们新增一段逻辑来：
+
+1. 通过 BERT 等模型提取每篇文档的 embedding（向量表示）
+2. 计算 **文档间相似度**
+3. 当相似度高于某阈值（如 0.7）时添加边（关系名可默认是“内容相关”或“产品相关”）
+
+---
+
+## ✅ 改进后的 `build_doc_graph.py`
+
+以下是完整可运行的版本（含边生成逻辑）：
+
+```python
+# app/build_graph.py
+import networkx as nx
+import matplotlib.pyplot as plt
+from sentence_transformers import SentenceTransformer, util
+import torch
+
+# 初始化向量模型（兼容GPU）
+model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2", device="cuda" if torch.cuda.is_available() else "cpu")
+
+def build_doc_graph(doc_infos, sim_threshold=0.7, output_path="output/graph.png"):
+    G = nx.Graph()
+
+    doc_names = list(doc_infos.keys())
+    summaries = [doc_infos[name]["summary"] for name in doc_names]
+
+    # 节点加入图中
+    for name in doc_names:
+        G.add_node(name, label=name)
+
+    # 用 BERT 向量计算相似度
+    embeddings = model.encode(summaries, convert_to_tensor=True, device=model.device)
+
+    # 两两比较相似度
+    for i in range(len(doc_names)):
+        for j in range(i + 1, len(doc_names)):
+            score = util.cos_sim(embeddings[i], embeddings[j]).item()
+            if score >= sim_threshold:
+                G.add_edge(doc_names[i], doc_names[j], weight=round(score, 2), label="相关")
+
+    # 可视化
+    pos = nx.spring_layout(G, k=0.5)
+    plt.figure(figsize=(12, 8))
+    nx.draw(G, pos, with_labels=True, node_color="lightblue", edge_color="gray", font_size=10, node_size=2000)
+    edge_labels = nx.get_edge_attributes(G, "label")
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color="red")
+    plt.title("文档级知识图谱（含边）")
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+    print(f"📊 图谱已保存至：{output_path}")
+```
+
+---
+
+## 🧪 示例效果（含边）：
+
+* **节点**：PDF 文档文件名
+* **边**：相似度 > 0.7 时加“相关”边
+* **支持中文摘要**
+
+---
+
+## ✅ 依赖说明（新用到）：
+
+```bash
+pip install sentence-transformers
+```
+
+---
+
+## 🚀 可选增强功能：
+
+| 功能       | 描述                                  |
+| -------- | ----------------------------------- |
+| 自定义关系边类型 | 使用规则或大模型判断“包含”、“引用”、“产品相关”等         |
+| 显示相似度分数  | 边标签加上相似度，如 "内容相关(0.82)"             |
+| 交互式图谱    | 用 pyvis / D3.js / Streamlit 显示可点击图谱 |
+| 多语种支持    | 当前模型支持中英文混合文档                       |
+
+---
+
+是否希望我继续帮你构建交互式可视化（如网页点击展示）？
 
