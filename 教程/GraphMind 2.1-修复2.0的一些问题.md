@@ -1,3 +1,182 @@
+下面的完整示例中，我们做了两点核心改进：
+
+1. **全文摘要**：将模型调用改为对整篇文档做一次摘要，而不是分段摘要。
+2. **自动连线**：在图谱构建时，不仅依赖标签交集，更加入语义相似度计算（`sentence-transformers`），当两篇文档相似度超过阈值时自动添加“相似”边。
+
+---
+
+## 1. `app/analyze_docs.py`（对全文摘要 + 标签）
+
+```python
+# app/analyze_docs.py
+from transformers import AutoTokenizer, AutoModel
+import torch
+import re
+
+def init_model(gpu_id=0):
+    device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+    tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
+    model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True) \
+                    .half().to(device).eval()
+    return tokenizer, model, device
+
+def summarize_and_tag_full(text, gpu_id=0):
+    tokenizer, model, device = init_model(gpu_id)
+    prompt = (
+        "请严格按以下格式返回：\n"
+        "【总结】这里放全文摘要\n"
+        "【标签】标签1、标签2、标签3\n\n"
+        "以下是文档全文内容：\n" + text
+    )
+    response, _ = model.chat(tokenizer, prompt, history=[], max_new_tokens=512)
+    return response
+
+def parse_summary_and_labels(raw_text):
+    # 提取【总结】和【标签】
+    sum_match = re.search(r"【总结】([\s\S]*?)【标签】", raw_text)
+    tag_match = re.search(r"【标签】([\s\S]*)", raw_text)
+    summary = sum_match.group(1).strip() if sum_match else raw_text.strip()
+    tags = []
+    if tag_match:
+        raw = tag_match.group(1).strip()
+        # 支持顿号、逗号分割
+        tags = [t.strip("，,、 \n") for t in re.split(r"[、,，\n]+", raw) if t.strip()]
+    return summary, tags
+```
+
+---
+
+## 2. `app/extract_text.py`（无需改动）
+
+```python
+import fitz, os
+
+def extract_text_from_pdf(pdf_path):
+    doc = fitz.open(pdf_path)
+    return "\n".join(page.get_text().strip() for page in doc)
+
+def load_all_pdfs(folder):
+    return {
+        fn: extract_text_from_pdf(os.path.join(folder, fn))
+        for fn in os.listdir(folder) if fn.lower().endswith(".pdf")
+    }
+```
+
+---
+
+## 3. `app/build_graph.py`（标签＋语义相似度连线）
+
+```python
+# app/build_graph.py
+import networkx as nx
+from pyvis.network import Network
+from sentence_transformers import SentenceTransformer, util
+import torch, os
+
+# 轻量向量模型
+embed_model = SentenceTransformer(
+    "paraphrase-multilingual-MiniLM-L12-v2",
+    device="cuda" if torch.cuda.is_available() else "cpu"
+)
+
+def build_doc_graph(doc_infos, sim_threshold=0.65, output_path="output/graph.html"):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    names = list(doc_infos.keys())
+    summaries = [doc_infos[n]["summary"] for n in names]
+
+    # 计算 embeddings
+    embeddings = embed_model.encode(summaries, convert_to_tensor=True)
+
+    G = nx.Graph()
+    for n in names:
+        G.add_node(n, label=n, title=doc_infos[n]["summary"])
+
+    # 用标签交集和语义相似度双重连边
+    for i in range(len(names)):
+        for j in range(i+1, len(names)):
+            n1, n2 = names[i], names[j]
+            tags1, tags2 = set(doc_infos[n1]["tags"]), set(doc_infos[n2]["tags"])
+            common = tags1 & tags2
+            score = util.cos_sim(embeddings[i], embeddings[j]).item()
+            if common:
+                G.add_edge(n1, n2, label="标签："+ "、".join(common))
+            elif score >= sim_threshold:
+                G.add_edge(n1, n2, label=f"相似({score:.2f})")
+
+    net = Network(height="800px", width="100%", directed=False, notebook=False)
+    net.from_nx(G)
+    net.show_buttons(filter_=['physics'])
+    net.show(output_path)
+    print("知识图谱已生成：", output_path)
+```
+
+---
+
+## 4. `app/export_dify.py`
+
+```python
+import json, os
+
+def export_to_dify_format(doc_infos, output_file="output/dify_dataset.json"):
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    arr = []
+    for name, info in doc_infos.items():
+        arr.append({
+            "id": name,
+            "content": info["summary"],
+            "metadata": {"tags": info["tags"]}
+        })
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(arr, f, ensure_ascii=False, indent=2)
+    print("Dify 数据已导出：", output_file)
+```
+
+---
+
+## 5. `run.py`（主流程并行 & 多 GPU）
+
+```python
+# run.py
+from app.extract_text import load_all_pdfs
+from app.analyze_docs import summarize_and_tag_full, parse_summary_and_labels
+from app.build_graph import build_doc_graph
+from app.export_dify import export_to_dify_format
+from concurrent.futures import ProcessPoolExecutor
+import torch
+from tqdm import tqdm
+
+def process_doc(args):
+    name, text, gpu = args
+    raw = summarize_and_tag_full(text, gpu)
+    summary, tags = parse_summary_and_labels(raw)
+    print(f"{name} → 标签：{tags}")
+    return name, {"summary": summary, "tags": tags}
+
+if __name__ == "__main__":
+    pdfs = load_all_pdfs("data/pdfs")
+    gpu_count = max(torch.cuda.device_count(), 1)
+    tasks = [(n, t, idx % gpu_count) for idx, (n, t) in enumerate(pdfs.items())]
+
+    doc_infos = {}
+    with ProcessPoolExecutor(max_workers=gpu_count) as exe:
+        for name, info in tqdm(exe.map(process_doc, tasks), total=len(tasks), desc="分析文档"):
+            doc_infos[name] = info
+
+    build_doc_graph(doc_infos)
+    export_to_dify_format(doc_infos)
+```
+
+---
+
+### 使用说明
+
+1. **全文摘要**：`summarize_and_tag_full` 对整篇文档做一次调用；
+2. **双重连边**：标签交集优先，若无交集且相似度 ≥ 0.65，则连“相似”边；
+3. **界面展示**：生成的 `output/graph.html` 是交互式网页；
+4. **多 GPU**：自动轮询分配显卡。
+
+这样就能确保 **每篇文档只做一次全文摘要**，并且 **图中出现基于标签或语义的连线**。
+
 ```
 [
   {
