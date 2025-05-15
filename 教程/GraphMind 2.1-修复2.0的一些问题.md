@@ -195,45 +195,41 @@ if __name__ == "__main__":
 
 ```python
 # app/build_graph.py
+from pyvis.network import Network
 import networkx as nx
-import matplotlib.pyplot as plt
 from sentence_transformers import SentenceTransformer, util
 import torch
+import os
 
-# 初始化向量模型（兼容GPU）
-model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2", device="cuda" if torch.cuda.is_available() else "cpu")
-
-def build_doc_graph(doc_infos, sim_threshold=0.7, output_path="output/graph.png"):
+def build_doc_graph_web(doc_infos, sim_threshold=0.7, output_path="output/graph.html"):
+    os.makedirs("output", exist_ok=True)
     G = nx.Graph()
-
     doc_names = list(doc_infos.keys())
     summaries = [doc_infos[name]["summary"] for name in doc_names]
 
-    # 节点加入图中
+    # 加载轻量模型用于相似度
+    model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2", device="cuda" if torch.cuda.is_available() else "cpu")
+    embeddings = model.encode(summaries, convert_to_tensor=True)
+
+    # 添加节点
     for name in doc_names:
         G.add_node(name, label=name)
 
-    # 用 BERT 向量计算相似度
-    embeddings = model.encode(summaries, convert_to_tensor=True, device=model.device)
-
-    # 两两比较相似度
+    # 添加边（基于语义相似度）
     for i in range(len(doc_names)):
         for j in range(i + 1, len(doc_names)):
-            score = util.cos_sim(embeddings[i], embeddings[j]).item()
-            if score >= sim_threshold:
-                G.add_edge(doc_names[i], doc_names[j], weight=round(score, 2), label="相关")
+            sim = util.cos_sim(embeddings[i], embeddings[j]).item()
+            if sim >= sim_threshold:
+                G.add_edge(doc_names[i], doc_names[j], weight=round(sim, 2), label="相似")
 
-    # 可视化
-    pos = nx.spring_layout(G, k=0.5)
-    plt.figure(figsize=(12, 8))
-    nx.draw(G, pos, with_labels=True, node_color="lightblue", edge_color="gray", font_size=10, node_size=2000)
-    edge_labels = nx.get_edge_attributes(G, "label")
-    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color="red")
-    plt.title("文档级知识图谱（含边）")
-    plt.tight_layout()
-    plt.savefig(output_path)
-    plt.close()
-    print(f"📊 图谱已保存至：{output_path}")
+    # 用 pyvis 可视化为网页
+    net = Network(height="800px", width="100%", notebook=False, font_color="black", directed=False)
+    net.from_nx(G)
+    net.show_buttons(filter_=['physics'])  # 显示布局调节按钮
+    net.show(output_path,notbook=Flase)
+
+    print(f"✅ 交互式知识图谱网页已生成：{output_path}")
+
 ```
 
 ---
