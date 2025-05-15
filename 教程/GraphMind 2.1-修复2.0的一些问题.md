@@ -1,4 +1,6 @@
 ```
+Both `max_new_tokens` (=512) and `max_length`(=8192) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
+
 RuntimeError: The following operation failed in the TorchScript interpreter.
 Traceback of TorchScript (most recent call last):
   File "C:\Users\Administrator\.cache\huggingface\modules\transformers_modules\THUDM\chatglm3-6b\e9e0406d062cdb887444fe5bd546833920abd4ac\modeling_chatglm.py", line 182, in apply_rotary_pos_emb
