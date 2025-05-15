@@ -79,6 +79,7 @@ def parse_summary_and_labels(text):
 
 ```python
 # run.py
+# run.py
 import os
 from app.extract_text import extract_text_from_pdf
 from app.analyze_docs import summarize_and_tag_single, parse_summary_and_labels
@@ -88,37 +89,42 @@ from concurrent.futures import ProcessPoolExecutor
 import torch
 from tqdm import tqdm
 
-pdf_dir = "data/pdfs"
-pdf_files = [f for f in os.listdir(pdf_dir) if f.endswith(".pdf")]
+def main():
+    pdf_dir = "data/pdfs"
+    pdf_files = [f for f in os.listdir(pdf_dir) if f.endswith(".pdf")]
 
-# Step 1: 提取文本
-pdf_texts = {}
-for file in tqdm(pdf_files, desc="提取PDF文本"):
-    text = extract_text_from_pdf(os.path.join(pdf_dir, file))
-    pdf_texts[file] = text
+    # Step 1: 提取文本
+    pdf_texts = {}
+    for file in tqdm(pdf_files, desc="提取PDF文本"):
+        text = extract_text_from_pdf(os.path.join(pdf_dir, file))
+        pdf_texts[file] = text
 
-# Step 2: 多GPU并行调用
-gpu_count = torch.cuda.device_count()
-print(f"🖥️ 检测到 {gpu_count} 块 GPU，准备并行处理...")
+    # Step 2: 多GPU并行调用
+    gpu_count = torch.cuda.device_count()
+    print(f"🖥️ 检测到 {gpu_count} 块 GPU，准备并行处理...")
 
-task_args = []
-for idx, (fname, text) in enumerate(pdf_texts.items()):
-    assigned_gpu = idx % gpu_count
-    task_args.append((fname, text, assigned_gpu))
+    task_args = []
+    for idx, (fname, text) in enumerate(pdf_texts.items()):
+        assigned_gpu = idx % gpu_count
+        task_args.append((fname, text, assigned_gpu))
 
-doc_infos = {}
-with ProcessPoolExecutor(max_workers=gpu_count) as executor:
-    results = executor.map(summarize_and_tag_single, task_args)
-    for fname, result in tqdm(results, total=len(task_args), desc="分析文档"):
-        summary, tags = parse_summary_and_labels(result)
-        print(f"📄 {fname} 标签：{tags}")
-        doc_infos[fname] = {"summary": summary, "tags": tags}
+    doc_infos = {}
+    with ProcessPoolExecutor(max_workers=gpu_count) as executor:
+        results = executor.map(summarize_and_tag_single, task_args)
+        for fname, result in tqdm(results, total=len(task_args), desc="分析文档"):
+            summary, tags = parse_summary_and_labels(result)
+            print(f"📄 {fname} 标签：{tags}")
+            doc_infos[fname] = {"summary": summary, "tags": tags}
 
-# Step 3: 构建图谱
-build_doc_graph(doc_infos)
+    # Step 3: 构建图谱
+    build_doc_graph(doc_infos)
 
-# Step 4: 导出为 Dify 格式
-export_to_dify_format(doc_infos)
+    # Step 4: 导出为 Dify 格式
+    export_to_dify_format(doc_infos)
+
+if __name__ == "__main__":
+    main()
+
 ```
 
 ---
