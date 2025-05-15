@@ -1,171 +1,63 @@
 ```
-### 文件：app/extract_text.py
-import fitz
-import os
-
-def extract_text_from_pdf(pdf_path):
-    doc = fitz.open(pdf_path)
-    texts = []
-    for page in doc:
-        txt = page.get_text().strip()
-        if txt:
-            texts.append(txt)
-    return "\n".join(texts)
-
-def load_all_pdfs(folder):
-    data = {}
-    for fn in os.listdir(folder):
-        if fn.lower().endswith(".pdf"):
-            path = os.path.join(folder, fn)
-            data[fn] = extract_text_from_pdf(path)
-    return data
-
-
-### 文件：app/analyze_docs.py
 from transformers import AutoTokenizer, AutoModel
 import torch
+import time
 import re
 
-# 初始化模型
-def init_model(gpu_id=0):
-    device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+def init_model(device='cuda'):
     tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
-    model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True) \
-                    .half().to(device).eval()
+    model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
+    model = model.half().to(device).eval()
     return tokenizer, model, device
 
-# 串行调用模型
-def summarize_and_tag_single(args):
-    fname, text, gpu_id = args
-    tokenizer, model, device = init_model(gpu_id)
-    
+def safe_chat(tokenizer, model, prompt, max_tokens=1024):
+    for attempt in range(3):
+        try:
+            return model.chat(tokenizer, prompt, history=[], max_new_tokens=max_tokens)[0]
+        except Exception as e:
+            print(f"⚠️ 模型推理失败 attempt {attempt+1}: {e}")
+            time.sleep(2)
+            max_tokens = max(512, max_tokens // 2)
+            prompt = prompt[:4000]
+    return None
+
+def process_document(text, fname="文档"):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    tokenizer, model, device = init_model(device)
+
     prompt = (
         "请阅读以下文档内容，并严格按照格式输出：\n"
         "【总结】简洁总结全文核心内容；\n"
         "【标签】提取3~5个主题相关标签，使用顿号或逗号分隔；\n"
         "【类型】从以下类别中选择最贴近的一个：综述、措施、政策、报告、通知、其它。\n\n"
-        f"文档内容如下：\n{text}"
+        f"文档内容如下：\n{text[:6000]}"
     )
-    try:
-        response, _ = model.chat(tokenizer, prompt, history=[], max_new_tokens=1024)
-    except Exception as e:
-        response = f"【总结】加载失败\n【标签】加载失败\n【类型】未知\n\n# 错误信息: {str(e)}"
-    return fname, response
 
-# 解析模型返回
+    response = safe_chat(tokenizer, model, prompt)
+    if not response:
+        return None, [], "其它"
+
+    return parse_summary_and_labels(response)
+
 def parse_summary_and_labels(raw_text):
-    sum_match = re.search(r"【总结】(.*?)\n", raw_text, re.S)
-    summary = sum_match.group(1).strip() if sum_match else ""
+    def extract_field(pattern, text, fallback=""):
+        match = re.search(pattern, text, re.S)
+        return match.group(1).strip() if match else fallback
 
-    tag_match = re.search(r"【标签】(.*?)\n", raw_text, re.S)
-    tag_set = set()
-    if tag_match:
-        raw = tag_match.group(1)
-        for t in re.split(r"[、,，\s]+", raw):
-            t = t.strip()
-            if t:
-                tag_set.add(t)
+    summary = extract_field(r"【总结】(.*?)\n", raw_text)
+    tags_str = extract_field(r"【标签】(.*?)\n", raw_text)
+    type_raw = extract_field(r"【类型】(.*?)\n", raw_text)
 
-    type_match = re.search(r"【类型】(.*?)\n", raw_text, re.S)
-    doc_type = type_match.group(1).strip() if type_match else "未知"
+    # 提取标签列表
+    tags = [t.strip() for t in re.split(r"[、,，\s]+", tags_str) if t.strip()]
+    tags = tags[:5] if len(tags) > 5 else tags
 
-    return summary, list(tag_set), doc_type
+    # 类型必须在白名单中
+    allowed_types = {"综述", "措施", "政策", "报告", "通知", "其它"}
+    doc_type = type_raw if type_raw in allowed_types else "其它"
 
+    return summary, tags, doc_type
 
-### 文件：app/build_graph.py
-import networkx as nx
-from pyvis.network import Network
-import os
-
-def build_doc_graph(doc_infos, output_path="output/graph.html"):
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    G = nx.Graph()
-    
-    for name, info in doc_infos.items():
-        label = f"{name}\n类型: {info['type']}"
-        G.add_node(name, title=info["summary"], label=label)
-
-    names = list(doc_infos.keys())
-    for i in range(len(names)):
-        for j in range(i+1, len(names)):
-            n1, n2 = names[i], names[j]
-            tags1, tags2 = set(doc_infos[n1]["tags"]), set(doc_infos[n2]["tags"])
-            common = tags1 & tags2
-            if common:
-                G.add_edge(n1, n2, label="、".join(common))
-
-    net = Network(height="800px", width="100%", directed=False, notebook=False)
-    net.from_nx(G)
-    net.show_buttons(filter_=['physics'])
-    net.show(output_path)
-    print("图谱已生成:", output_path)
-
-
-### 文件：app/export_dify.py
-import json, os
-
-def export_to_dify_format(doc_infos, output_file="output/dify_dataset.json"):
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    arr = []
-    for name, info in doc_infos.items():
-        arr.append({
-            "id": name,
-            "content": info["summary"],
-            "metadata": {
-                "tags": info["tags"],
-                "type": info["type"]
-            }
-        })
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(arr, f, ensure_ascii=False, indent=2)
-    print("Dify 数据已导出:", output_file)
-
-
-### 文件：run.py
-from app.extract_text import load_all_pdfs
-from app.analyze_docs import summarize_and_tag_single, parse_summary_and_labels
-from app.build_graph import build_doc_graph
-from app.export_dify import export_to_dify_format
-import torch
-from tqdm import tqdm
-import time
-
-
-def main():
-    pdf_dir = "data/pdfs"
-    docs = load_all_pdfs(pdf_dir)
-    gpu_count = max(torch.cuda.device_count(), 1)
-    doc_infos = {}
-
-    doc_items = list(docs.items())
-    i = 0
-    while i < len(doc_items):
-        name, text = doc_items[i]
-        try:
-            print(f"\n处理文档 {i+1}/{len(doc_items)}: {name}")
-            _, raw = summarize_and_tag_single((name, text, 0))
-            summary, tags, doc_type = parse_summary_and_labels(raw)
-            print(f"→ 类型: {doc_type}，标签: {tags}")
-            doc_infos[name] = {"summary": summary, "tags": tags, "type": doc_type}
-            i += 1
-        except Exception as e:
-            print(f"[错误] 处理 {name} 失败: {e}，等待 10 秒后重试...")
-            time.sleep(10)
-
-    build_doc_graph(doc_infos)
-    export_to_dify_format(doc_infos)
-
-if __name__ == "__main__":
-    main()
-
-
-### 文件：requirements.txt
-transformers
-torch
-pymupdf
-networkx
-pyvis
-tqdm
 
 ```
 
