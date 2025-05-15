@@ -1,4 +1,6 @@
 ```
+C:\actions-runner\_work\pytorch\pytorch\pytorch\aten\src\ATen\native\cuda\IndexKernel.cu:93: block: [1086,0,0], thread: [124,0,0] Assertion `-sizes[i] <= index && index < sizes[i] && "index out of bounds"` failed.
+
 torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 108.00 MiB. GPU 0 has a total capacity of 44.67 GiB of which 100.25 MiB is free. Of the allocated memory 9.21 GiB is allocated by PyTorch, and 12.64 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
 ```
 下面的完整示例中，我们做了两点核心改进：
