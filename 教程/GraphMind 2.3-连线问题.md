@@ -1,4 +1,7 @@
 ```
+index 9290 is out of bounds for dimension 0 with size 8192
+```
+```
 from transformers import AutoTokenizer, AutoModel
 import torch
 import time
