@@ -1,29 +1,5 @@
-非常好，这正是鲁棒系统应有的能力：**遇到失败文件不跳过，而是自动降级重试，并从失败点继续处理**。
-
----
-
-## ✅ 改进目标
-
-我们来对项目主逻辑 `run.py` 和分析模块 `analyze_docs.py` 进行增强，具体实现：
-
-### 🧠 功能目标：
-
-1. **失败文件不跳过**；
-2. **失败后自动降级处理（如切小段、缩短 max\_new\_tokens、切换 CPU）**；
-3. **处理状态记录（避免重复处理）**；
-4. **失败文件可从断点继续重试**。
-
----
-
-## ✅ 改进后的项目结构与核心代码
-
-以下是一次性改进后的 **全项目代码（关键文件）**，可复制直接替换使用：
-
----
-
-### `run.py`（主脚本，支持失败降级与断点续跑）
-
-```python
+```
+# run.py
 from app.extract_text import load_all_pdfs
 from app.analyze_docs import process_document
 from app.build_graph import build_doc_graph
@@ -36,7 +12,6 @@ def main():
     done_file = "output/processed.json"
     doc_infos = {}
 
-    # 如果之前有成功处理的结果，加载它们
     if os.path.exists(done_file):
         with open(done_file, "r", encoding="utf-8") as f:
             doc_infos = json.load(f)
@@ -46,9 +21,9 @@ def main():
             print(f"✅ 已处理: {name}，跳过")
             continue
         print(f"\n🚀 处理中: {name}")
-        summary, tags = process_document(text, fname=name)
+        summary, tags, doc_type = process_document(text, fname=name)
         if summary:
-            doc_infos[name] = {"summary": summary, "tags": tags}
+            doc_infos[name] = {"summary": summary, "tags": tags, "type": doc_type}
             with open(done_file, "w", encoding="utf-8") as f:
                 json.dump(doc_infos, f, ensure_ascii=False, indent=2)
         else:
@@ -59,26 +34,20 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
 
----
 
-### `app/analyze_docs.py`（全量总结、自动降级、失败恢复）
-
-```python
+# app/analyze_docs.py
 from transformers import AutoTokenizer, AutoModel
 import torch
 import time
 import re
 
-# 初始化模型
 def init_model(device='cuda'):
     tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
     model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
     model = model.half().to(device).eval()
     return tokenizer, model, device
 
-# 模型推理封装，支持降级
 def safe_chat(tokenizer, model, prompt, max_tokens=1024):
     try:
         response, _ = model.chat(tokenizer, prompt, history=[], max_new_tokens=max_tokens)
@@ -93,41 +62,106 @@ def safe_chat(tokenizer, model, prompt, max_tokens=1024):
             print(f"⛔️ 降级后仍失败: {e}")
             return None
 
-# 核心分析流程（全文总结 + 标签）
 def process_document(text, fname="文档"):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     tokenizer, model, device = init_model(device)
 
     prompt = (
-        "请根据以下内容，输出全文摘要与标签，格式如下：\n"
+        "请根据以下内容，输出全文摘要、标签和文档类型，格式如下：\n"
         "【总结】全文摘要内容\n"
-        "【标签】标签1、标签2、标签3\n\n"
-        f"文档内容如下：\n{text[:6000]}"  # 控制输入长度
+        "【标签】标签1、标签2、标签3\n"
+        "【类型】综述 / 措施\n\n"
+        f"文档内容如下：\n{text[:6000]}"
     )
 
     response = safe_chat(tokenizer, model, prompt)
     if not response:
-        return None, []
+        return None, [], "未知"
 
     return parse_summary_and_labels(response)
 
-# 解析函数
 def parse_summary_and_labels(raw_text):
     sum_match = re.search(r"【总结】(.*?)\n", raw_text, re.S)
     tag_match = re.search(r"【标签】(.*?)\n", raw_text, re.S)
+    type_match = re.search(r"【类型】(.*?)\n", raw_text, re.S)
+
     summary = sum_match.group(1).strip() if sum_match else ""
-    tags = []
-    if tag_match:
-        raw = tag_match.group(1)
-        tags = [t.strip() for t in re.split(r"[、,，\s]+", raw) if t.strip()]
-    return summary, tags
+    tags = [t.strip() for t in re.split(r"[、,，\s]+", tag_match.group(1)) if t.strip()] if tag_match else []
+    doc_type = type_match.group(1).strip() if type_match else "未知"
+
+    return summary, tags, doc_type
+
+
+# app/build_graph.py
+import networkx as nx
+from pyvis.network import Network
+import os
+
+def build_doc_graph(doc_infos, output_path="output/graph.html"):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    G = nx.Graph()
+
+    for name, info in doc_infos.items():
+        label = f"{name}\n({info.get('type', '未知')})"
+        G.add_node(name, title=info["summary"], label=label)
+
+    names = list(doc_infos.keys())
+    for i in range(len(names)):
+        for j in range(i+1, len(names)):
+            n1, n2 = names[i], names[j]
+            tags1, tags2 = set(doc_infos[n1]["tags"]), set(doc_infos[n2]["tags"])
+            common = tags1 & tags2
+            if common:
+                G.add_edge(n1, n2, label="、".join(common))
+
+    net = Network(height="800px", width="100%", directed=False, notebook=False)
+    net.from_nx(G)
+    net.show_buttons(filter_=['physics'])
+    net.show(output_path)
+    print("图谱已生成:", output_path)
+
+
+# app/export_dify.py
+import json, os
+
+def export_to_dify_format(doc_infos, output_file="output/dify_dataset.json"):
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    arr = []
+    for name, info in doc_infos.items():
+        arr.append({
+            "id": name,
+            "content": info["summary"],
+            "metadata": {
+                "tags": info["tags"],
+                "type": info.get("type", "未知")
+            }
+        })
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(arr, f, ensure_ascii=False, indent=2)
+    print("Dify 数据已导出:", output_file)
+
+
+# app/extract_text.py
+import fitz
+import os
+
+def extract_text_from_pdf(pdf_path):
+    doc = fitz.open(pdf_path)
+    texts = []
+    for page in doc:
+        txt = page.get_text().strip()
+        if txt:
+            texts.append(txt)
+    return "\n".join(texts)
+
+def load_all_pdfs(folder):
+    data = {}
+    for fn in os.listdir(folder):
+        if fn.lower().endswith(".pdf"):
+            path = os.path.join(folder, fn)
+            data[fn] = extract_text_from_pdf(path)
+    return data
 ```
-
----
-
-### ✅ 附：其余文件可保持不变
-
-`extract_text.py`、`build_graph.py`、`export_dify.py` 均可复用你已有代码，不需改动。
 
 ---
 
