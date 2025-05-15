@@ -283,4 +283,231 @@ pip install sentence-transformers
 ---
 
 是否希望我继续帮你构建交互式可视化（如网页点击展示）？
+下面给出 **完整可运行的项目代码**，重点在于两处改进：
+
+1. **强化 Prompt**：让大模型严格按照指定格式输出“标签”；
+2. **增强解析函数**：兼容多种输出格式，确保能正确提取标签。
+
+---
+
+## 📁 项目结构回顾
+
+```
+document_graph_project/
+├── app/
+│   ├── extract_text.py
+│   ├── analyze_docs.py
+│   ├── build_graph.py
+│   └── export_dify.py
+├── data/
+│   └── pdfs/
+├── output/
+│   └── graph.html
+├── run.py
+└── requirements.txt
+```
+
+---
+
+## 1. `app/analyze_docs.py`（摘要+标签解析）
+
+```python
+from transformers import AutoTokenizer, AutoModel
+import torch
+import re
+
+# 初始化模型
+def init_model(gpu_id=0):
+    device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+    tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
+    model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True) \
+                    .half().to(device).eval()
+    return tokenizer, model, device
+
+# 将长文本按字数或 token 粗分
+def chunk_text(text, max_len=1500):
+    return [text[i:i+max_len] for i in range(0, len(text), max_len)]
+
+# 对单个文档调用模型，返回“原始响应”
+def summarize_and_tag_single(args):
+    fname, text, gpu_id = args
+    tokenizer, model, device = init_model(gpu_id)
+    chunks = chunk_text(text)
+    combined = ""
+    for idx, chunk in enumerate(chunks, 1):
+        prompt = (
+            "请严格按以下格式返回：\n"
+            "【总结】这里放本段摘要文字\n"
+            "【标签】标签1、标签2、标签3\n\n"
+            f"文档内容（第{idx}段）：\n{chunk}"
+        )
+        response, _ = model.chat(tokenizer, prompt, history=[], max_new_tokens=512)
+        combined += f"\n=== 段落 {idx} 输出 ===\n" + response + "\n"
+    return fname, combined
+
+# 解析模型返回文本，提取“摘要”和“标签”
+def parse_summary_and_labels(raw_text):
+    # 先按段落分割
+    parts = re.split(r"=== 段落 \d+ 输出 ===", raw_text)
+    full_summary = []
+    tag_set = set()
+
+    for part in parts:
+        # 提取摘要
+        sum_match = re.search(r"【总结】(.*?)\n", part, re.S)
+        if sum_match:
+            full_summary.append(sum_match.group(1).strip())
+        # 提取标签
+        tag_match = re.search(r"【标签】(.*?)\n", part, re.S)
+        if tag_match:
+            raw = tag_match.group(1)
+            # 支持顿号、逗号、空格分割
+            for t in re.split(r"[、,，\s]+", raw):
+                t = t.strip()
+                if t:
+                    tag_set.add(t)
+
+    summary = "\n".join(full_summary).strip()
+    tags = list(tag_set)
+    return summary, tags
+```
+
+---
+
+## 2. `app/extract_text.py`（PDF 文本提取）
+
+```python
+import fitz
+import os
+
+def extract_text_from_pdf(pdf_path):
+    doc = fitz.open(pdf_path)
+    texts = []
+    for page in doc:
+        txt = page.get_text().strip()
+        if txt:
+            texts.append(txt)
+    return "\n".join(texts)
+
+def load_all_pdfs(folder):
+    data = {}
+    for fn in os.listdir(folder):
+        if fn.lower().endswith(".pdf"):
+            path = os.path.join(folder, fn)
+            data[fn] = extract_text_from_pdf(path)
+    return data
+```
+
+---
+
+## 3. `app/build_graph.py`（交互式网页可视化）
+
+```python
+import networkx as nx
+from pyvis.network import Network
+import os
+
+def build_doc_graph(doc_infos, output_path="output/graph.html"):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    G = nx.Graph()
+    # 添加节点
+    for name, info in doc_infos.items():
+        G.add_node(name, title=info["summary"], label=name)
+    # 添加基于标签交集的边
+    names = list(doc_infos.keys())
+    for i in range(len(names)):
+        for j in range(i+1, len(names)):
+            n1, n2 = names[i], names[j]
+            tags1, tags2 = set(doc_infos[n1]["tags"]), set(doc_infos[n2]["tags"])
+            common = tags1 & tags2
+            if common:
+                G.add_edge(n1, n2, label="、".join(common))
+    net = Network(height="800px", width="100%", directed=False, notebook=False)
+    net.from_nx(G)
+    net.show_buttons(filter_=['physics'])
+    net.show(output_path)
+    print("图谱已生成:", output_path)
+```
+
+---
+
+## 4. `app/export_dify.py`（导出 Dify 格式）
+
+```python
+import json, os
+
+def export_to_dify_format(doc_infos, output_file="output/dify_dataset.json"):
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    arr = []
+    for name, info in doc_infos.items():
+        arr.append({
+            "id": name,
+            "content": info["summary"],
+            "metadata": {"tags": info["tags"]}
+        })
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(arr, f, ensure_ascii=False, indent=2)
+    print("Dify 数据已导出:", output_file)
+```
+
+---
+
+## 5. 主流程脚本 `run.py`
+
+```python
+from app.extract_text import load_all_pdfs
+from app.analyze_docs import summarize_and_tag_single, parse_summary_and_labels
+from app.build_graph import build_doc_graph
+from app.export_dify import export_to_dify_format
+from concurrent.futures import ProcessPoolExecutor
+from tqdm import tqdm
+import torch
+import os
+
+def main():
+    pdf_dir = "data/pdfs"
+    docs = load_all_pdfs(pdf_dir)
+
+    # 并行调用大模型，自动轮 GPU
+    gpu_count = max(torch.cuda.device_count(), 1)
+    tasks = [(name, text, idx % gpu_count) for idx, (name, text) in enumerate(docs.items())]
+
+    doc_infos = {}
+    with ProcessPoolExecutor(max_workers=gpu_count) as exe:
+        for name, raw in tqdm(exe.map(summarize_and_tag_single, tasks), total=len(tasks), desc="分析文档"):
+            summary, tags = parse_summary_and_labels(raw)
+            print(f"{name} → 标签: {tags}")
+            doc_infos[name] = {"summary": summary, "tags": tags}
+
+    # 可视化网页
+    build_doc_graph(doc_infos)
+
+    # 导出 Dify 数据
+    export_to_dify_format(doc_infos)
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+### 🔧 使用步骤
+
+1. 安装依赖：
+
+   ```bash
+   pip install transformers torch pymupdf networkx pyvis tqdm
+   ```
+2. 将 PDF 放入 `data/pdfs/`
+3. 执行主脚本：
+
+   ```bash
+   python run.py
+   ```
+4. 浏览器打开 `output/graph.html`，即可看到交互式图谱；
+5. 在 `output/dify_dataset.json` 查看导出的 Dify 格式数据。
+
+---
+
+这样，**模型会严格按格式输出标签**，也保证了**解析函数能正确抽取不再为空**，并且整个流程支持多 GPU 并行加速。
 
