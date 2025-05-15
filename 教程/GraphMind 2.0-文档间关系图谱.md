@@ -1,59 +1,3 @@
-```
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-
-# 加载本地 ChatGLM3 模型（需要提前下载到本地）
-tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
-model = AutoModelForCausalLM.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True, device_map="auto").eval()
-
-def chunk_text(text, max_tokens=2048):
-    """将长文本按最大token数切分为多段"""
-    import re
-    sentences = re.split(r'(。|！|\!|\.|？|\?)', text)
-    chunks, current = [], ""
-    for i in range(0, len(sentences), 2):
-        sent = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else "")
-        if len(tokenizer(current + sent).input_ids) < max_tokens:
-            current += sent
-        else:
-            chunks.append(current)
-            current = sent
-    if current:
-        chunks.append(current)
-    return chunks
-
-def summarize_and_tag(text):
-    chunks = chunk_text(text)
-    combined_summary = ""
-    for i, chunk in enumerate(chunks):
-        prompt = f"请总结以下文档内容并提取3-5个标签，输出格式：【总结】xxx【标签】xxx：\n{chunk}"
-        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
-        
-        # 使用 generate 方法生成文本
-        with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=512)
-        
-        combined_summary += f"\n第{i+1}段：{tokenizer.decode(outputs[0], skip_special_tokens=True)}\n"
-    
-    return combined_summary
-
-def parse_summary_and_labels(text):
-    summary = ""
-    tags = []
-    if "【总结】" in text and "【标签】" in text:
-        summary = text.split("【总结】")[1].split("【标签】")[0].strip()
-        tag_text = text.split("【标签】")[1].strip()
-        tags = [t.strip("，, ") for t in tag_text.split() if t.strip()]
-    return summary, tags
-
-```
-
-你遇到的错误是因为 `ChatGLM3` 并不是 `AutoModelForSeq2SeqLM` 类型，而是 `AutoModel` 类型，并不支持标准的 `.generate()` 接口。我们需要用它自己的对话接口来实现内容总结与标签提取，同时控制输入长度以避免 OOM 或 `max_length` 报错。
-
-以下是完整的项目结构与修复后的代码流程：
-
----
-
 ## ✅ 项目结构
 
 ```
@@ -74,13 +18,15 @@ document_graph_project/
 ## 📦 安装依赖（requirements.txt）
 
 ```txt
-transformers>=4.39.3
+transformers=4.38.3
+# 按理说应该>=4.39.3，但是出现报错AttributeError: 'ChatGLMForConditionalGeneration' object has no attribute '_extract_past_from_model_output'，所以改成4.38.3了
 torch>=2.1.0
 cpm_kernels
 sentence-transformers
 pymupdf
 networkx
 pyvis
+tqdm
 ```
 
 ---
@@ -179,7 +125,8 @@ def build_doc_graph(doc_infos, output_path="output/graph.html"):
     net = Network(height="800px", width="100%", directed=False)
     net.from_nx(G)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    net.show(output_path)
+    net.show(output_path,notebook=False)
+    # 注意这里容易报错AttributeError:'NoneType' object has no attribute 'render'错误，不行再试试notebook=Ture
 ```
 
 ---
@@ -212,11 +159,12 @@ from app.extract_text import load_all_pdfs
 from app.analyze_docs import summarize_and_tag, parse_summary_and_labels
 from app.build_graph import build_doc_graph
 from app.export_dify import export_to_dify_format
+from tqdm import tqdm
 
 pdf_texts = load_all_pdfs("data/pdfs")
 doc_infos = {}
 
-for fname, text in pdf_texts.items():
+for fname, text in tqdm(pdf_texts.items(),desc="处理文档中"):
     raw = summarize_and_tag(text)
     summary, tags = parse_summary_and_labels(raw)
     doc_infos[fname] = {"summary": summary, "tags": tags}
@@ -240,7 +188,3 @@ python run.py
 * `dify_dataset.json`：可用于 Dify 导入的数据集
 
 ---
-
-如果你希望添加前端网页预览（像 Gradio 那样），可以后续补加。我也可以帮你对接前端。如果要支持批量上传、可视化、双击聚焦等功能，也可继续优化。
-
-是否需要我打包一个完整的项目 zip 或者 Dockerfile？
