@@ -1,3 +1,6 @@
+```
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 108.00 MiB. GPU 0 has a total capacity of 44.67 GiB of which 100.25 MiB is free. Of the allocated memory 9.21 GiB is allocated by PyTorch, and 12.64 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+```
 下面的完整示例中，我们做了两点核心改进：
 
 1. **全文摘要**：将模型调用改为对整篇文档做一次摘要，而不是分段摘要。
