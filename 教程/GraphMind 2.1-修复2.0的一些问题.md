@@ -1,3 +1,19 @@
+```
+RuntimeError:
+        An attempt has been made to start a new process before the
+        current process has finished its bootstrapping phase.
+
+        This probably means that you are not using fork to start your
+        child processes and you have forgotten to use the proper idiom
+        in the main module:
+
+            if __name__ == '__main__':
+                freeze_support()
+                ...
+
+        The "freeze_support()" line can be omitted if the program
+        is not going to be frozen to produce an executable.
+```
 以下是完整支持 **多 GPU 并行** 的代码版本。我们会对 `analyze_docs.py` 和 `run.py` 两个模块做修改，并保证每个进程自动分配不同 GPU，以避免重复占用同一块显卡内存。
 
 ---
