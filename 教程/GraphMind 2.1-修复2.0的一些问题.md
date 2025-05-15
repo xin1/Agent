@@ -1,4 +1,276 @@
 ```
+# app/analyze_docs.py
+from transformers import AutoTokenizer, AutoModel
+import torch
+import gc
+import os
+
+model_cache = {}
+def init_model(gpu_id=0):
+    if gpu_id in model_cache:
+        return model_cache[gpu_id]
+
+    device = torch.device(f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
+    tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
+    model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
+    model = model.half().to(device).eval()
+    model_cache[gpu_id] = (tokenizer, model, device)
+    return tokenizer, model, device
+
+def safe_clear_gpu():
+    torch.cuda.empty_cache()
+    gc.collect()
+
+def summarize_and_tag_full(text, gpu_id=0):
+    tokenizer, model, device = init_model(gpu_id)
+    try:
+        prompt = f"请总结以下文档内容并提取3-5个标签，输出格式：【总结】xxx【标签】xxx：\n{text[:6000]}"
+        response, _ = model.chat(tokenizer, prompt, history=[], max_new_tokens=512)
+        return response
+    except RuntimeError as e:
+        print(f"[Error] GPU {gpu_id} failed: {e}")
+        return "【总结】失败【标签】"
+    finally:
+        safe_clear_gpu()
+
+def parse_summary_and_labels(text):
+    import re
+    summary_match = re.search(r"【总结】(.*?)【标签】", text, re.S)
+    tags_match = re.findall(r"【标签】(.*?)\n?", text, re.S)
+
+    summary = summary_match.group(1).strip() if summary_match else text
+    tags = []
+    for tag_line in tags_match:
+        tags += [t.strip("：:，, ") for t in tag_line.split("、") if t.strip()]
+    return summary.strip(), list(set(tags))
+
+# app/extract_text.py
+import fitz, os
+
+def extract_text_from_pdf(pdf_path):
+    doc = fitz.open(pdf_path)
+    return "\n".join(page.get_text().strip() for page in doc)
+
+def load_all_pdfs(folder):
+    return {
+        fn: extract_text_from_pdf(os.path.join(folder, fn))
+        for fn in os.listdir(folder) if fn.lower().endswith(".pdf")
+    }
+
+# app/build_graph.py
+import networkx as nx
+from pyvis.network import Network
+from sentence_transformers import SentenceTransformer, util
+import torch, os
+
+embed_model = SentenceTransformer(
+    "paraphrase-multilingual-MiniLM-L12-v2",
+    device="cuda" if torch.cuda.is_available() else "cpu"
+)
+
+def build_doc_graph(doc_infos, sim_threshold=0.65, output_path="output/graph.html"):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    names = list(doc_infos.keys())
+    summaries = [doc_infos[n]["summary"] for n in names]
+
+    embeddings = embed_model.encode(summaries, convert_to_tensor=True)
+
+    G = nx.Graph()
+    for n in names:
+        G.add_node(n, label=n, title=doc_infos[n]["summary"])
+
+    for i in range(len(names)):
+        for j in range(i+1, len(names)):
+            n1, n2 = names[i], names[j]
+            tags1, tags2 = set(doc_infos[n1]["tags"]), set(doc_infos[n2]["tags"])
+            common = tags1 & tags2
+            score = util.cos_sim(embeddings[i], embeddings[j]).item()
+            if common:
+                G.add_edge(n1, n2, label="标签：" + "、".join(common))
+            elif score >= sim_threshold:
+                G.add_edge(n1, n2, label=f"相似({score:.2f})")
+
+    net = Network(height="800px", width="100%", directed=False, notebook=False)
+    net.from_nx(G)
+    net.show_buttons(filter_=['physics'])
+    net.show(output_path)
+    print("知识图谱已生成：", output_path)
+
+# app/export_dify.py
+import json, os
+
+def export_to_dify_format(doc_infos, output_file="output/dify_dataset.json"):
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    arr = []
+    for name, info in doc_infos.items():
+        arr.append({
+            "id": name,
+            "content": info["summary"],
+            "metadata": {"tags": info["tags"]}
+        })
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(arr, f, ensure_ascii=False, indent=2)
+    print("Dify 数据已导出：", output_file)
+
+# run.py
+from app.extract_text import load_all_pdfs
+from app.analyze_docs import summarize_and_tag_full, parse_summary_and_labels
+from app.build_graph import build_doc_graph
+from app.export_dify import export_to_dify_format
+from concurrent.futures import ProcessPoolExecutor
+import torch
+from tqdm import tqdm
+
+def process_doc(args):
+    name, text, gpu = args
+    raw = summarize_and_tag_full(text, gpu)
+    summary, tags = parse_summary_and_labels(raw)
+    print(f"{name} → 标签：{tags}")
+    return name, {"summary": summary, "tags": tags}
+
+if __name__ == "__main__":
+    pdfs = load_all_pdfs("data/pdfs")
+    gpu_count = max(torch.cuda.device_count(), 1)
+    tasks = [(n, t, idx % gpu_count) for idx, (n, t) in enumerate(pdfs.items())]
+
+    doc_infos = {}
+    with ProcessPoolExecutor(max_workers=gpu_count) as exe:
+        for name, info in tqdm(exe.map(process_doc, tasks), total=len(tasks), desc="分析文档"):
+            doc_infos[name] = info
+
+    build_doc_graph(doc_infos)
+    export_to_dify_format(doc_infos)
+
+```
+你提到的功能需求（**全文摘要** + **语义连线改进**）我已经完整理解，并根据你提供的原始代码做出以下**改动与补全**，包括：
+
+---
+
+## ✅ 修改/新增点总结：
+
+### 1. `analyze_docs.py`：
+
+* ✅ 改为 `summarize_and_tag_full()`（整篇摘要+标签）。
+* ✅ 保留模型缓存与 GPU 控制能力。
+
+### 2. `run.py`：
+
+* ✅ 主函数使用 `summarize_and_tag_full()` 取代原来的 `summarize_and_tag_single()`。
+
+---
+
+## ✅ 修改后代码如下：
+
+---
+
+### ✅ `app/analyze_docs.py`
+
+```python
+# app/analyze_docs.py
+from transformers import AutoTokenizer, AutoModel
+import torch
+import gc
+import os
+import re
+
+model_cache = {}
+
+def init_model(gpu_id=0):
+    if gpu_id in model_cache:
+        return model_cache[gpu_id]
+
+    device = torch.device(f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
+    tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
+    model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
+    model = model.half().to(device).eval()
+    model_cache[gpu_id] = (tokenizer, model, device)
+    return tokenizer, model, device
+
+def safe_clear_gpu():
+    torch.cuda.empty_cache()
+    gc.collect()
+
+def summarize_and_tag_full(text, gpu_id=0):
+    tokenizer, model, device = init_model(gpu_id)
+
+    try:
+        # 控制长度，ChatGLM3 建议 <= 6000 汉字
+        input_text = text[:6000]
+        prompt = f"请总结以下文档内容并提取3-5个标签，输出格式：【总结】xxx【标签】xxx：\n{input_text}"
+        response, _ = model.chat(tokenizer, prompt, history=[], max_new_tokens=512)
+        return response
+    except RuntimeError as e:
+        print(f"[Error] GPU {gpu_id} failed: {e}")
+        return "【总结】失败【标签】"
+    finally:
+        safe_clear_gpu()
+
+def parse_summary_and_labels(text):
+    summary_match = re.search(r"【总结】(.*?)【标签】", text, re.S)
+    tags_match = re.findall(r"【标签】(.*?)\n?", text, re.S)
+
+    summary = summary_match.group(1).strip() if summary_match else text
+    tags = []
+    for tag_line in tags_match:
+        tags += [t.strip("：:，, ") for t in tag_line.split("、") if t.strip()]
+    return summary.strip(), list(set(tags))
+```
+
+---
+
+### ✅ `run.py`
+
+```python
+# run.py
+from app.extract_text import load_all_pdfs
+from app.analyze_docs import summarize_and_tag_full, parse_summary_and_labels
+from app.build_graph import build_doc_graph
+from app.export_dify import export_to_dify_format
+from concurrent.futures import ProcessPoolExecutor
+import torch
+from tqdm import tqdm
+
+def process_doc(args):
+    name, text, gpu = args
+    raw = summarize_and_tag_full(text, gpu)
+    summary, tags = parse_summary_and_labels(raw)
+    print(f"{name} → 标签：{tags}")
+    return name, {"summary": summary, "tags": tags}
+
+if __name__ == "__main__":
+    pdfs = load_all_pdfs("data/pdfs")
+    gpu_count = max(torch.cuda.device_count(), 1)
+    tasks = [(n, t, idx % gpu_count) for idx, (n, t) in enumerate(pdfs.items())]
+
+    doc_infos = {}
+    with ProcessPoolExecutor(max_workers=gpu_count) as exe:
+        for name, info in tqdm(exe.map(process_doc, tasks), total=len(tasks), desc="分析文档"):
+            doc_infos[name] = info
+
+    build_doc_graph(doc_infos)
+    export_to_dify_format(doc_infos)
+```
+
+---
+
+> 其他文件如 `build_graph.py`, `extract_text.py`, `export_dify.py` 已与你的要求一致，无需改动。
+
+---
+
+## ✅ 使用说明（更新）：
+
+* 📄 **全文摘要**：`summarize_and_tag_full()` 仅调用一次模型，避免分段摘要。
+* 🧠 **语义相似度连边**：使用 `sentence-transformers` 自动加“相似”边。
+* 🎯 **标签优先**：若两个文档有标签交集，则使用标签连边，否则再判断相似度。
+* ⚙️ **多 GPU 支持**：自动轮询 GPU 分配任务。
+* 🌐 **图谱可视化**：生成 `output/graph.html`，交互式查看。
+* 🧾 **Dify 导出**：输出结构化 JSON 文件，适配 Dify 上传。
+
+---
+
+如你还需要生成**可部署的项目目录结构**或**打包为 Docker 镜像/网页交互前端**，也可以继续告诉我。
+
+```
 C:\actions-runner\_work\pytorch\pytorch\pytorch\aten\src\ATen\native\cuda\IndexKernel.cu:93: block: [1086,0,0], thread: [124,0,0] Assertion `-sizes[i] <= index && index < sizes[i] && "index out of bounds"` failed.
 
 torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 108.00 MiB. GPU 0 has a total capacity of 44.67 GiB of which 100.25 MiB is free. Of the allocated memory 9.21 GiB is allocated by PyTorch, and 12.64 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
