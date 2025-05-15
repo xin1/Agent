@@ -66,22 +66,27 @@ if __name__ == "__main__":
 ## 📄 2. `app/extract_csv.py`
 
 ```python
+import csv
 import os
-import pandas as pd
+
+def extract_first_column_from_csv(csv_path):
+    texts = []
+    with open(csv_path, 'r', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if row and len(row) >= 1:
+                texts.append(row[0].strip())  # 只保留第一列
+    return "\n".join(texts)
 
 def load_all_csvs(folder):
     data = {}
     for fn in os.listdir(folder):
         if fn.lower().endswith(".csv"):
             path = os.path.join(folder, fn)
-            try:
-                df = pd.read_csv(path)
-                if not df.empty:
-                    content = "\n".join(df.iloc[:, 0].dropna().astype(str).tolist())
-                    data[fn] = content
-            except Exception as e:
-                print(f"⚠️ 读取失败 {fn}: {e}")
+            content = extract_first_column_from_csv(path)
+            data[fn] = content
     return data
+
 ```
 
 ---
