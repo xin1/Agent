@@ -1,4 +1,23 @@
 ```
+[
+  {
+    "id": "p-AI技术入门分享-五不同模式智能体 0316.pdf",
+    "summary": "本文档介绍了AI智能体系统中的四种关键模式：链式工作流、并行化工作流、路由工作流和编排器-工作者模式。每种模式都有其适用场景和优点，可以根据任务的特点和需求选择合适的工作模式以提高效率和准确性。",
+    "tags": ""
+  },
+  {
+    "id": "p-供应制造自有知识库（DeepSeek R1）模型部署及工程数字人方案0225-2.pdf",
+    "summary": "本文主要介绍了Security Level为confidential的供应制造自有知识库（DeepSeek R1）模型部署及工程数字人方案，并结合智能制造未来规划，打造智能制造领域“小战颅”和“小千手观音”系统。主要内容包括AI在军事系统中的应用成果，结合智能制造未来规划，以及“小战颅”系统的知识体系架构。",
+    "tags": ""
+  },
+  {
+    "id": "p-制造工艺概述.pdf",
+    "summary": "这是一份关于产品制造工艺的概述，内容包括单板制造工艺、整机制造工艺和SMT制造工艺。通过对各工序工艺过程和关键质量风险管控要点的介绍，提升了全流程质量意识。主要标签为：制造工艺、产品制造、SMT工艺、PCB制造。\n\n第2段：【总结】该文档主要介绍了单板制造工艺中的SMT焊接/压接制造工艺、整机制造工艺以及SMT制造工艺的相关内容，包括焊接/压接制造工艺、单板装配制造工艺、测试/维修等环节。其中，又详细介绍了各种制造工艺的过程、原理、设备及关键质量控制要点。此外，还提到了回流焊工艺、AOI自动光学检测、X-Ray设备及检测原理等相关内容。",
+    "tags": ""
+  }
+]
+
+
 Both `max_new_tokens` (=512) and `max_length`(=8192) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
 
 RuntimeError: The following operation failed in the TorchScript interpreter.
