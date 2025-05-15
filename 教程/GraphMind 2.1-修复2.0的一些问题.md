@@ -14,39 +14,55 @@ torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 108.00 MiB. GPU 0 
 
 ```python
 # app/analyze_docs.py
+# analyze_docs.py
 from transformers import AutoTokenizer, AutoModel
 import torch
-import re
+import gc
+import os
 
+# 支持分配 GPU 的初始化
+model_cache = {}
 def init_model(gpu_id=0):
-    device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+    if gpu_id in model_cache:
+        return model_cache[gpu_id]
+
+    device = torch.device(f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu")
     tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
-    model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True) \
-                    .half().to(device).eval()
+    model = AutoModel.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
+    model = model.half().to(device).eval()
+    model_cache[gpu_id] = (tokenizer, model, device)
     return tokenizer, model, device
 
-def summarize_and_tag_full(text, gpu_id=0):
-    tokenizer, model, device = init_model(gpu_id)
-    prompt = (
-        "请严格按以下格式返回：\n"
-        "【总结】这里放全文摘要\n"
-        "【标签】标签1、标签2、标签3\n\n"
-        "以下是文档全文内容：\n" + text
-    )
-    response, _ = model.chat(tokenizer, prompt, history=[], max_new_tokens=512)
-    return response
+def safe_clear_gpu():
+    torch.cuda.empty_cache()
+    gc.collect()
 
-def parse_summary_and_labels(raw_text):
-    # 提取【总结】和【标签】
-    sum_match = re.search(r"【总结】([\s\S]*?)【标签】", raw_text)
-    tag_match = re.search(r"【标签】([\s\S]*)", raw_text)
-    summary = sum_match.group(1).strip() if sum_match else raw_text.strip()
+def summarize_and_tag_single(args):
+    filename, text, gpu_id = args
+    tokenizer, model, device = init_model(gpu_id)
+
+    try:
+        # 防止 index 越界异常：切片长度不超过模型限制（ChatGLM3 一般不超过 8192 token）
+        prompt = f"请总结以下文档内容并提取3-5个标签，输出格式：【总结】xxx【标签】xxx：\n{text[:6000]}"
+        response, _ = model.chat(tokenizer, prompt, history=[], max_new_tokens=512)
+        return filename, response
+    except RuntimeError as e:
+        print(f"[Error] {filename} GPU {gpu_id} failed: {e}")
+        return filename, "【总结】失败【标签】"
+    finally:
+        safe_clear_gpu()
+
+def parse_summary_and_labels(text):
+    import re
+    summary_match = re.search(r"【总结】(.*?)【标签】", text, re.S)
+    tags_match = re.findall(r"【标签】(.*?)\n?", text, re.S)
+
+    summary = summary_match.group(1).strip() if summary_match else text
     tags = []
-    if tag_match:
-        raw = tag_match.group(1).strip()
-        # 支持顿号、逗号分割
-        tags = [t.strip("，,、 \n") for t in re.split(r"[、,，\n]+", raw) if t.strip()]
-    return summary, tags
+    for tag_line in tags_match:
+        tags += [t.strip("：:，, ") for t in tag_line.split("、") if t.strip()]
+    return summary.strip(), list(set(tags))
+
 ```
 
 ---
