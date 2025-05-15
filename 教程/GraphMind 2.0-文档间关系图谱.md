@@ -126,7 +126,9 @@ def build_doc_graph(doc_infos, output_path="output/graph.html"):
     net.from_nx(G)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     net.show(output_path,notebook=False)
-    # 注意这里容易报错AttributeError:'NoneType' object has no attribute 'render'错误，不行再试试notebook=Ture
+    # 注意不加 notebook= 容易报AttributeError:'NoneType' object has no attribute 'render'错误，可以换成 notebook=Ture
+    # 如果设为 True，会在 Jupyter Notebook 中直接显示图像（不保存到文件）。
+    # 如果设为 False（默认），仅将图像保存到 output_path，不弹出显示。
 ```
 
 ---
