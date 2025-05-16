@@ -25,7 +25,7 @@ def build_doc_graph(doc_infos, output_path="output/graph.html"):
         group = info.get("group", "default")
         groups.setdefault(group, []).append((name, info))
 
-    # 在每个 group 内按照 TYPE_ORDER 连接
+    # 根据 TYPE_ORDER 添加组内层级边
     for group_docs in groups.values():
         # 建立 type ➝ name 映射
         type_to_name = {info["type"]: name for name, info in group_docs}
@@ -34,12 +34,25 @@ def build_doc_graph(doc_infos, output_path="output/graph.html"):
             if t1 in type_to_name and t2 in type_to_name:
                 G.add_edge(type_to_name[t1], type_to_name[t2], label=f"{t1} ➝ {t2}")
 
+    # 添加：根据相同标签连接所有文档（跨组也可以）
+    names = list(doc_infos.keys())
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            n1, n2 = names[i], names[j]
+            tags1 = set(doc_infos[n1].get("tags", []))
+            tags2 = set(doc_infos[n2].get("tags", []))
+            common_tags = tags1 & tags2
+            if common_tags:
+                # 为避免和层级边混淆，使用不同颜色/样式（在可视化中定义）
+                G.add_edge(n1, n2, label="、".join(common_tags), color="#888888", arrows="")
+
     # 可视化
     net = Network(height="800px", width="100%", directed=True, notebook=False)
     net.from_nx(G)
     net.show_buttons(filter_=['physics'])
     net.show(output_path, notebook=False)
     print("图谱已生成:", output_path)
+
 
 ```
 明白了。你需要在大模型处理的基础上，**自动识别每个文档所属的 group（如 A/B）**，构造出结构如下的 `doc_infos`：
