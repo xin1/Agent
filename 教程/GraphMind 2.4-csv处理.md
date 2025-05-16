@@ -1,6 +1,59 @@
-错误
 ```
-ValueError: too many values to unpack (expected 3)
+from app.extract_csv import load_all_csvs
+from app.analyze_docs import process_document
+from app.build_graph import build_doc_graph
+from app.export_dify import export_to_dify_format
+import json, os
+
+def main():
+    csv_dir = "data/csvs"
+    docs = load_all_csvs(csv_dir)
+    current_names = set(docs.keys())  # 当前存在的文件名
+    done_file = "output/processed.json"
+    doc_infos = {}
+
+    # 加载已处理文档信息
+    if os.path.exists(done_file):
+        with open(done_file, "r", encoding="utf-8") as f:
+            doc_infos = json.load(f)
+
+        # ✅ 自动删除已不存在的文档信息
+        removed = []
+        for name in list(doc_infos.keys()):
+            if name not in current_names:
+                removed.append(name)
+                del doc_infos[name]
+
+        if removed:
+            print(f"🗑️ 以下文档已被删除，相关信息也已移除: {removed}")
+            with open(done_file, "w", encoding="utf-8") as f:
+                json.dump(doc_infos, f, ensure_ascii=False, indent=2)
+
+    # 处理新文档
+    for name, text in docs.items():
+        if name in doc_infos:
+            print(f"✅ 已处理: {name}，跳过")
+            continue
+        print(f"\n🚀 处理中: {name}")
+        summary, tags, doc_type, group = process_document(text, fname=name)
+        if summary:
+            doc_infos[name] = {
+                "summary": summary,
+                "tags": tags,
+                "type": doc_type,
+                "group": group
+            }
+            with open(done_file, "w", encoding="utf-8") as f:
+                json.dump(doc_infos, f, ensure_ascii=False, indent=2)
+        else:
+            print(f"❌ 处理失败: {name}，可稍后手动重试")
+
+    build_doc_graph(doc_infos)
+    export_to_dify_format(doc_infos)
+
+if __name__ == "__main__":
+    main()
+
 ```
 ```
 from app.extract_csv import load_all_csvs
