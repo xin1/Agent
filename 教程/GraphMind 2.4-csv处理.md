@@ -1,4 +1,56 @@
 ```
+from app.extract_csv import load_all_csvs
+from app.analyze_docs import process_document
+from app.build_graph import build_doc_graph
+from app.export_dify import export_to_dify_format
+import json, os
+
+def infer_group(name):
+    # 根据文件名规则提取 group，例如“部门A”、“业务A”都属于 group "A"
+    for g in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        if f"{g}" in name:
+            return g
+    return "default"
+
+def main():
+    csv_dir = "data/csvs"
+    docs = load_all_csvs(csv_dir)
+    done_file = "output/processed.json"
+    doc_infos = {}
+
+    if os.path.exists(done_file):
+        with open(done_file, "r", encoding="utf-8") as f:
+            doc_infos = json.load(f)
+
+    for name, text in docs.items():
+        if name in doc_infos:
+            print(f"✅ 已处理: {name}，跳过")
+            continue
+
+        print(f"\n🚀 处理中: {name}")
+        summary, tags, doc_type = process_document(text, fname=name)
+
+        if summary:
+            group = infer_group(name)  # 新增：自动推断所属 group
+            doc_infos[name] = {
+                "summary": summary,
+                "tags": tags,
+                "type": doc_type,
+                "group": group
+            }
+            with open(done_file, "w", encoding="utf-8") as f:
+                json.dump(doc_infos, f, ensure_ascii=False, indent=2)
+        else:
+            print(f"❌ 处理失败: {name}，可稍后手动重试")
+
+    build_doc_graph(doc_infos)
+    export_to_dify_format(doc_infos)
+
+if __name__ == "__main__":
+    main()
+
+```
+```
 import networkx as nx
 from pyvis.network import Network
 import os
