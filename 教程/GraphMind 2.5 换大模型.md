@@ -54,6 +54,20 @@ def init_model(device=None):
     model = model.to(device).eval()
     model.generation_config.pad_token_id = tokenizer.eos_token_id # ✅ 解决提示：设置 pad_token_id = eos_token_id
     return tokenizer, model, device
+#如果爆显存，强制使用 CPU，避免显存问题
+#def init_model(device=None):
+#    device = "cpu"  
+#
+#    model_name = "deepseek-ai/deepseek-llm-chat"
+#    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+#    model = AutoModelForCausalLM.from_pretrained(
+#        model_name,
+#        torch_dtype=torch.float32,  # CPU 必须使用 float32
+#        trust_remote_code=True
+#    )
+#    model.to(device).eval()
+#    model.generation_config.pad_token_id = tokenizer.eos_token_id
+#    return tokenizer, model, device
 
 # 执行推理，封装为安全调用
 def safe_chat(tokenizer, model, prompt, max_tokens=1024, temperature=0.7):
