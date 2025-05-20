@@ -1,3 +1,228 @@
+好的，下面是一个**完整的部署流程**，可以让你将支持 `.pdf`, `.docx`, `.doc` 文件的结构化提取工具（含裁剪预览 + 转 CSV + 下载）部署到 **Docker 容器**中。
+
+---
+
+## 🧱 1. 项目结构
+
+假设你的项目目录如下：
+
+```
+pdfstruc/
+├── app.py
+├── process.py
+├── convert_doc.py
+├── preview.py
+├── zip_util.py
+├── requirements.txt
+├── Dockerfile
+├── static/
+│   └── index.html
+├── outputs/
+└── start.sh
+```
+
+---
+
+## 📄 2. `convert_doc.py`（Word转PDF）
+
+```python
+# convert_doc.py
+import os
+import subprocess
+from uuid import uuid4
+
+def convert_to_pdf(upload_file, save_dir="converted_pdfs"):
+    os.makedirs(save_dir, exist_ok=True)
+    filename = upload_file.filename
+    file_ext = filename.lower().split('.')[-1]
+
+    unique_name = f"{uuid4().hex}_{filename}"
+    input_path = os.path.join(save_dir, unique_name)
+
+    with open(input_path, "wb") as f:
+        f.write(upload_file.file.read())
+
+    if file_ext == "pdf":
+        return input_path  # 已是 PDF
+    elif file_ext in ["doc", "docx"]:
+        output_pdf = input_path.rsplit('.', 1)[0] + ".pdf"
+        try:
+            subprocess.run([
+                "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", save_dir, input_path
+            ], check=True)
+            return output_pdf
+        except Exception as e:
+            raise RuntimeError(f"转换失败: {e}")
+    else:
+        raise ValueError("不支持的文件类型")
+```
+
+---
+
+## 🧠 3. `process.py`（PDF结构化提取）
+
+你已有，关键函数名为 `process_pdf_and_extract(pdf_file, top_cm, bottom_cm)`。
+
+---
+
+## 🖼 4. `preview.py`（生成裁剪预览）
+
+此模块接收 PDF 文件、裁剪上下边界，生成裁剪后图像供用户预览。
+
+---
+
+## 📦 5. `app.py`（FastAPI 主接口）
+
+修改后支持 PDF、Word 自动转换：
+
+```python
+# app.py
+from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from typing import List
+import os
+from convert_doc import convert_to_pdf
+from process import process_pdf_and_extract
+from preview import generate_preview_image
+from zip_util import zip_csvs
+from uuid import uuid4
+from fastapi import HTTPException
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
+
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+@app.get("/")
+async def root():
+    with open("static/index.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read(), status_code=200)
+
+@app.post("/preview/")
+async def preview(file: UploadFile = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    try:
+        pdf_path = convert_to_pdf(file)
+        preview_path = generate_preview_image(pdf_path, top_cm, bottom_cm)
+        return {"preview_path": preview_path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"预览失败：{str(e)}")
+
+@app.post("/process_batch/")
+async def process_batch(files: List[UploadFile] = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    csv_paths = []
+    for file in files:
+        try:
+            pdf_path = convert_to_pdf(file)
+            with open(pdf_path, "rb") as pdf_file:
+                class DummyUpload:
+                    def __init__(self, filename, file):
+                        self.filename = filename
+                        self.file = file
+                dummy = DummyUpload(os.path.basename(pdf_path), pdf_file)
+                csv_path = process_pdf_and_extract(dummy, top_cm, bottom_cm)
+                csv_paths.append(csv_path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"处理文件出错: {str(e)}")
+
+    if len(csv_paths) == 1:
+        return {"path": csv_paths[0], "is_zip": False}
+    else:
+        zip_path = zip_csvs(csv_paths)
+        return {"path": zip_path, "is_zip": True}
+
+@app.get("/download/")
+async def download(path: str):
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="文件未找到")
+    return FileResponse(path, filename=os.path.basename(path))
+```
+
+---
+
+## 📜 6. `requirements.txt`
+
+```txt
+fastapi
+uvicorn
+python-multipart
+PyMuPDF
+aiofiles
+```
+
+---
+
+## 🐳 7. Dockerfile
+
+```Dockerfile
+# 使用轻量 Python 镜像
+FROM python:3.10-slim
+
+# 安装 LibreOffice
+RUN apt-get update && apt-get install -y \
+    libreoffice \
+    fonts-noto-cjk \
+    poppler-utils \
+    && apt-get clean
+
+# 设置工作目录
+WORKDIR /app
+
+# 拷贝代码
+COPY . .
+
+# 安装依赖
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 创建必要目录
+RUN mkdir -p outputs converted_pdfs
+
+# 暴露端口
+EXPOSE 8000
+
+# 启动脚本
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+---
+
+## ▶️ 8. 启动命令（本地）
+
+在项目目录下运行：
+
+```bash
+docker build -t pdfstruc .
+docker run -d -p 8000:8000 --name pdfstruc-app pdfstruc
+```
+
+访问：[http://localhost:8000](http://localhost:8000)
+
+---
+
+## ✅ 9. 前端支持
+
+你前端 `<input type="file">` 标签需要支持 Word：
+
+```html
+<input type="file" id="file" name="file" accept=".pdf,.doc,.docx" multiple>
+```
+
+---
+
+## ✅ 10. 常见问题排查
+
+| 问题          | 原因                   | 解决方案                                              |
+| ----------- | -------------------- | ------------------------------------------------- |
+| 文件处理失败      | LibreOffice 未安装或转换失败 | Dockerfile 已集成                                    |
+| 预览路径返回 null | 裁剪出错                 | 检查预览图逻辑是否使用正确裁剪区域                                 |
+| 下载失败        | 下载路径未encode或文件不存在    | 使用 `encodeURIComponent(path)` 并检查 `/download/` 实现 |
+
+---
+
+如果你需要我将这套完整项目打包为 GitHub 项目模版或加上前端示例代码，也可以继续告诉我。需要吗？
+
 非常好的问题，确实需要 **返回 PDF 路径**，这样主流程才能继续处理转化后的文件。
 
 在上面的 `convert_doc_to_pdf` 函数中，**已经有 `return output_path`**，意思是：
