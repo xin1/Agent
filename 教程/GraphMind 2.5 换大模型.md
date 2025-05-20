@@ -1,6 +1,6 @@
 错误：
 ```
-Setting `pad_token_id` to `eos_token_id`:100001 for open-end generation.
+⚠️ 推理失败: CUDA out of memory. Tried to allocate 44.00 MiB. GPU 0 has a total capacity of 44.67 GiB of which 10.88 MiB is free. Of the allocated memory 13.96 GiiB is allocated by PyTorch, and 393.34 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)❌ 处理失败: FusionServer机架服务器iBMC告警处理09.csv，可稍后手动重试
 ```
 提示词修改：
 ```
