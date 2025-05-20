@@ -52,6 +52,7 @@ def init_model(device=None):
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, torch_dtype=torch.float16)
     model = model.to(device).eval()
+    model.generation_config.pad_token_id = tokenizer.eos_token_id # ✅ 解决提示：设置 pad_token_id = eos_token_id
     return tokenizer, model, device
 
 # 执行推理，封装为安全调用
@@ -82,15 +83,15 @@ def safe_chat(tokenizer, model, prompt, max_tokens=1024, temperature=0.7):
 def process_document(text, fname="文档"):
     tokenizer, model, device = init_model()
 
-    prompt = (
-        "请阅读以下文档内容，并“严格”按照格式输出：\n"
-        "【总结】30字简洁总结全文核心内容；\n"
+   prompt = (
+        "请阅读以下文档内容，并严格按照以下格式提取结构化信息：\n"
+        "【总结】请用30字以内总结文档核心内容；\n"
         "【标签】提取5~10个主题相关标签，使用顿号或逗号分隔；\n"
-        "【类型】从以下类别中选择最贴近的一个：\n"
-        "部门具体业务、业务下产品基础知识、操作指导书、其他；\n"
-        "【归属组】请提取本文件属于哪一组（如供应制作部门、星星海部门、AI部门...），如无法判断则填“未知”。\n\n"
+        "【类型】根据内容判断其所属文档类型，优先考虑操作类，其次业务类，最后基础类；\n"
+        "【归属组】推理该文档可能的归属部门（如产品工程部、制造质量组、研发部等），无法判断请填“未知”。\n\n"
         f"文档内容如下：\n{text[:6000]}"
     )
+
 
     response = safe_chat(tokenizer, model, prompt)
     if not response:
