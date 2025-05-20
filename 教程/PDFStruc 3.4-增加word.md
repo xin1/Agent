@@ -1,3 +1,175 @@
+以下是完整整合的支持 `.doc`, `.docx`, `.pdf` 文件的结构化提取处理流程，包含：
+
+1. 支持上传 `.doc/.docx/.pdf` 的前端页面
+2. 后端 `app.py`，统一处理所有格式
+3. `process.py`，处理 PDF 提取结构
+4. `convert_doc.py`，Word 转 PDF 模块
+
+---
+
+### ✅ 目录结构建议
+
+```
+project/
+├── app.py
+├── convert_doc.py
+├── process.py
+├── preview.py
+├── zip_util.py
+├── static/
+│   └── index.html
+├── outputs/
+└── uploads/
+```
+
+---
+
+### ✅ convert\_doc.py（新增模块：Word 转 PDF）
+
+```python
+import os
+import uuid
+from docx import Document
+import comtypes.client  # Windows 专用，确保安装 comtypes
+from tempfile import NamedTemporaryFile
+
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def convert_doc_to_pdf(input_file, suffix):
+    if suffix == ".docx":
+        output_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4().hex}.pdf")
+        word = comtypes.client.CreateObject("Word.Application")
+        doc = word.Documents.Open(input_file)
+        doc.SaveAs(output_path, FileFormat=17)  # 17 是 PDF 格式
+        doc.Close()
+        word.Quit()
+        return output_path
+    elif suffix == ".doc":
+        output_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4().hex}.pdf")
+        word = comtypes.client.CreateObject("Word.Application")
+        doc = word.Documents.Open(input_file)
+        doc.SaveAs(output_path, FileFormat=17)
+        doc.Close()
+        word.Quit()
+        return output_path
+    return None
+```
+
+---
+
+### ✅ process.py（处理 PDF 文件）
+
+保持不变：
+
+```python
+# ...省略原代码
+def process_pdf_and_extract(file, top_cm, bottom_cm):
+    # file 可以是 UploadFile 或 文件路径（str）
+    if isinstance(file, str):
+        pdf = fitz.open(file)
+        filename = os.path.splitext(os.path.basename(file))[0]
+    else:
+        pdf = fitz.open(stream=file.file.read(), filetype="pdf")
+        filename = file.filename.rsplit('.', 1)[0]
+
+    # ...保持原逻辑
+```
+
+---
+
+### ✅ app.py（支持 doc/docx/pdf 自动处理）
+
+```python
+from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from typing import List
+import os
+import shutil
+from process import process_pdf_and_extract
+from convert_doc import convert_doc_to_pdf
+from preview import generate_preview_image
+from zip_util import zip_csvs
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+)
+
+@app.get("/")
+async def root():
+    with open("static/index.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read(), status_code=200)
+
+def save_upload_file(upload_file: UploadFile):
+    temp_path = os.path.join("uploads", upload_file.filename)
+    with open(temp_path, "wb") as f:
+        shutil.copyfileobj(upload_file.file, f)
+    return temp_path
+
+def convert_if_needed(upload_file: UploadFile):
+    suffix = os.path.splitext(upload_file.filename)[1].lower()
+    if suffix in [".doc", ".docx"]:
+        saved_path = save_upload_file(upload_file)
+        return convert_doc_to_pdf(saved_path, suffix)
+    elif suffix == ".pdf":
+        return upload_file
+    else:
+        raise ValueError("Unsupported file type")
+
+@app.post("/preview/")
+async def preview(file: UploadFile = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    pdf_path_or_file = convert_if_needed(file)
+    preview_path = generate_preview_image(pdf_path_or_file, top_cm, bottom_cm)
+    return {"preview_path": preview_path}
+
+@app.post("/process_batch/")
+async def process_batch(files: List[UploadFile] = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    csv_paths = []
+    for file in files:
+        pdf_path_or_file = convert_if_needed(file)
+        csv_path = process_pdf_and_extract(pdf_path_or_file, top_cm, bottom_cm)
+        csv_paths.append(csv_path)
+
+    if len(csv_paths) == 1:
+        return {"path": csv_paths[0], "is_zip": False}
+    else:
+        zip_path = zip_csvs(csv_paths)
+        return {"path": zip_path, "is_zip": True}
+
+@app.get("/download/")
+async def download(path: str):
+    return FileResponse(path, filename=os.path.basename(path))
+```
+
+---
+
+### ✅ static/index.html（更新文件选择器）
+
+```html
+<input id="fileInput" type="file" name="files" multiple accept=".pdf,.doc,.docx">
+```
+
+---
+
+### 📌 注意事项
+
+1. ✅ `comtypes` 仅支持 Windows，如需跨平台需用 LibreOffice 替代；
+2. ✅ 确保机器安装了 Microsoft Word；
+3. ✅ `uploads/` 用于临时保存上传的 Word 文件和转换后的 PDF；
+4. ✅ 如果你部署在 Docker 中，请说明，我会帮你切换为 LibreOffice 转换方案。
+
+---
+
+是否需要我打包生成一份完整代码 zip，或进一步帮你部署成 Docker 项目？
+
+
 非常好，保持职责单一是个好习惯。我们可以新建一个模块，比如：
 
 ```
