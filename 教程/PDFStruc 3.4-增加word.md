@@ -1,7 +1,39 @@
 好的，下面是一个**完整的部署流程**，可以让你将支持 `.pdf`, `.docx`, `.doc` 文件的结构化提取工具（含裁剪预览 + 转 CSV + 下载）部署到 **Docker 容器**中。
 
 ---
+```
+# Stage 1: 安装 LibreOffice 和字体等依赖
+FROM debian:bookworm as converter
 
+RUN apt-get update && apt-get install -y \
+    libreoffice \
+    fonts-noto-cjk \
+    && apt-get clean
+
+# Stage 2: 构建你的 Python 应用
+FROM python:3.11-slim
+
+# 安装依赖
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# 拷贝 LibreOffice（仅限必要部分）
+COPY --from=converter /usr/lib/libreoffice /usr/lib/libreoffice
+COPY --from=converter /usr/bin/libreoffice /usr/bin/libreoffice
+COPY --from=converter /usr/share/fonts /usr/share/fonts
+
+# 设定工作目录
+WORKDIR /app
+COPY . .
+
+# 设置环境变量防止 libreoffice 报错
+ENV HOME=/tmp
+ENV LANG=zh_CN.UTF-8
+
+# 启动服务
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
+
+```
 ## 🧱 1. 项目结构
 
 假设你的项目目录如下：
