@@ -1,3 +1,8 @@
+错误：
+```
+Setting `pad_token_id` to `eos_token_id`:100001 for open-end generation.
+```
+提示词修改：
 ```
 prompt = (
     "请阅读以下文档内容，并“严格”按照格式输出：\n\n"
