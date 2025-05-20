@@ -1,20 +1,28 @@
-为了支持 `.doc` 和 `.docx` 文件，我们需要对以下两部分进行修改：
+当然可以 ✅，将 `.doc` / `.docx` 转换为 `.pdf` 是一个稳妥的方案，特别适合你现有项目的结构（因为已支持 PDF 的裁剪与提取）。以下是你可以采用的完整方案，支持：
+
+* `.pdf`：直接处理
+* `.docx` / `.doc`：先转换为 `.pdf`，再统一处理
 
 ---
 
-## ✅ 一、修改 `process.py`：统一处理 PDF、DOCX 和 DOC
+## ✅ 一、依赖库安装（一次性）
 
-### 安装依赖（如未安装）：
+你需要安装 [`docx2pdf`](https://github.com/AlJohri/docx2pdf) 或 `comtypes`（Windows 专用）：
 
 ```bash
-pip install python-docx pypandoc
+pip install docx2pdf
 ```
 
-> `pypandoc` 会调用系统中的 pandoc，因此你需要 [安装 pandoc](https://pandoc.org/installing.html)。
+注意：
+
+* `docx2pdf` 仅支持 **Windows** 和 **macOS**（Linux 下可选 LibreOffice）
+* Windows 上它通过调用 Word 来转换，所以本地需安装 Microsoft Word
 
 ---
 
-### 🔧 修改 `process.py` 支持多格式
+## ✅ 二、修改 `process.py`
+
+我们在 `process_pdf_and_extract()` 函数外层包装一个统一入口 `process_file_and_extract()`，如下：
 
 ```python
 import os
@@ -23,34 +31,23 @@ import csv
 import re
 import tempfile
 from uuid import uuid4
-from docx import Document
-import pypandoc
+from docx2pdf import convert
 
 os.makedirs("outputs", exist_ok=True)
 
-heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')  # 1 总则、1.1 标题
+def convert_to_pdf(input_path: str) -> str:
+    temp_dir = tempfile.mkdtemp()
+    output_pdf_path = os.path.join(temp_dir, os.path.splitext(os.path.basename(input_path))[0] + ".pdf")
+    convert(input_path, output_pdf_path)
+    return output_pdf_path
 
-def extract_headings_and_content(text_lines):
-    content_dict = {}
+def process_pdf_and_extract(pdf_path: str, filename_hint: str, top_cm, bottom_cm):
+    pdf = fitz.open(pdf_path)
+    csv_path = f"outputs/{uuid4().hex}_{filename_hint}.csv"
+
+    heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')
     current_heading = None
-
-    for text in text_lines:
-        text = text.strip()
-        if not text:
-            continue
-
-        match = heading_pattern.match(text)
-        if match:
-            current_heading = f"{match.group(1)} {match.group(4).strip()}"
-            content_dict[current_heading] = ""
-        elif current_heading:
-            content_dict[current_heading] += text + " "
-
-    return content_dict
-
-def process_pdf(file, top_cm, bottom_cm):
-    pdf = fitz.open(stream=file.file.read(), filetype="pdf")
-    text_lines = []
+    content_dict = {}
 
     for page in pdf:
         rect = page.rect
@@ -58,47 +55,18 @@ def process_pdf(file, top_cm, bottom_cm):
         bottom = bottom_cm * 28.35
         clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
         blocks = page.get_text("blocks", clip=clip)
+
         sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))
         for block in sorted_blocks:
-            text_lines.append(block[4])
-
-    return text_lines
-
-def process_docx(file):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-        tmp.write(file.file.read())
-        tmp.flush()
-        doc = Document(tmp.name)
-
-    text_lines = [p.text for p in doc.paragraphs if p.text.strip()]
-    return text_lines
-
-def convert_doc_to_docx(file):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".doc") as tmp_doc:
-        tmp_doc.write(file.file.read())
-        tmp_doc.flush()
-        docx_path = tmp_doc.name + ".docx"
-        pypandoc.convert_file(tmp_doc.name, 'docx', outputfile=docx_path)
-    return docx_path
-
-def process_pdf_and_extract(file, top_cm=0, bottom_cm=0):
-    filename = file.filename.rsplit('.', 1)[0]
-    ext = file.filename.lower().split('.')[-1]
-
-    if ext == "pdf":
-        text_lines = process_pdf(file, top_cm, bottom_cm)
-    elif ext == "docx":
-        text_lines = process_docx(file)
-    elif ext == "doc":
-        docx_path = convert_doc_to_docx(file)
-        doc = Document(docx_path)
-        text_lines = [p.text for p in doc.paragraphs if p.text.strip()]
-        os.remove(docx_path)  # 清理临时文件
-    else:
-        raise ValueError("Unsupported file type")
-
-    content_dict = extract_headings_and_content(text_lines)
-    csv_path = f"outputs/{uuid4().hex}_{filename}.csv"
+            text = block[4].strip()
+            if not text:
+                continue
+            match = heading_pattern.match(text)
+            if match:
+                current_heading = f"{match.group(1)} {match.group(4).strip()}"
+                content_dict[current_heading] = ""
+            elif current_heading:
+                content_dict[current_heading] += text + " "
 
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
@@ -106,24 +74,62 @@ def process_pdf_and_extract(file, top_cm=0, bottom_cm=0):
             writer.writerow([heading, content.strip()])
 
     return csv_path
+
+def process_file_and_extract(file, top_cm, bottom_cm):
+    suffix = file.filename.lower().split(".")[-1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix}") as tmp:
+        tmp.write(file.file.read())
+        tmp_path = tmp.name
+
+    if suffix == "pdf":
+        return process_pdf_and_extract(tmp_path, file.filename.rsplit('.', 1)[0], top_cm, bottom_cm)
+    elif suffix in ["docx", "doc"]:
+        pdf_path = convert_to_pdf(tmp_path)
+        return process_pdf_and_extract(pdf_path, file.filename.rsplit('.', 1)[0], top_cm, bottom_cm)
+    else:
+        raise ValueError("不支持的文件类型，仅支持 PDF / DOCX / DOC")
 ```
 
 ---
 
-## ✅ 二、修改 `app.py`：无需额外改动，只要 `process_pdf_and_extract` 能处理不同格式
+## ✅ 三、修改 `app.py` 中调用方式
 
-`app.py` 中的 `/process_batch/` 会自动调用 `process_pdf_and_extract`，支持了 DOC、DOCX 后无需额外更改。
+把 `process_pdf_and_extract` 改为新的 `process_file_and_extract`：
+
+```python
+from process import process_file_and_extract
+
+# ...
+
+@app.post("/process_batch/")
+async def process_batch(files: List[UploadFile] = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    csv_paths = []
+    for file in files:
+        csv_path = process_file_and_extract(file, top_cm, bottom_cm)
+        csv_paths.append(csv_path)
+
+    if len(csv_paths) == 1:
+        return {"path": csv_paths[0], "is_zip": False}
+    else:
+        zip_path = zip_csvs(csv_paths)
+        return {"path": zip_path, "is_zip": True}
+```
 
 ---
 
-## ✅ 测试支持文件类型
+## ✅ 四、效果说明
 
-你现在的系统支持：
-
-* PDF 文件（原生）
-* DOCX 文件（直接读取）
-* DOC 文件（先转 DOCX，再处理）
+| 文件类型    | 处理方式              |
+| ------- | ----------------- |
+| `.pdf`  | 原生支持，直接处理         |
+| `.docx` | 用 Word 转为 PDF，再处理 |
+| `.doc`  | 同上                |
 
 ---
 
-是否需要我帮你一并修改 `preview.py` 支持 DOCX 或 DOC 预览（如转换为图像）？这会更复杂一些。
+## 如遇问题
+
+* 如果你使用的是 **Linux** 环境，请告知，我可以提供基于 LibreOffice 的转换方案。
+* 如果你希望不依赖 Word，也可以使用 `unoconv` 或 `pandoc`（但布局可能不如 Word 精准）。
+
+需要我进一步帮你自动化部署、Docker化或容错处理也可以继续提。是否现在就试试这个方案？
