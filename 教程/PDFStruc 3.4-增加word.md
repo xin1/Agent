@@ -1,3 +1,136 @@
+非常好的问题，确实需要 **返回 PDF 路径**，这样主流程才能继续处理转化后的文件。
+
+在上面的 `convert_doc_to_pdf` 函数中，**已经有 `return output_path`**，意思是：
+
+* 你传入一个 `.docx` 路径
+* 它转换为 `.pdf`，保存到 `uploads/xxxx.pdf`
+* 然后返回这个路径供主流程使用
+
+如果你希望更明确地看到完整流程如何整合，我现在帮你梳理下：
+
+---
+
+## ✅ 一套完整支持 `.pdf` 和 `.docx` 的流程整合
+
+### 🧱 `convert_docx.py`
+
+```python
+import os
+import uuid
+from docx2pdf import convert
+
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def convert_docx_to_pdf(file):
+    # 保存临时 docx 文件
+    suffix = os.path.splitext(file.filename)[-1].lower()
+    if suffix != ".docx":
+        raise ValueError("只支持 .docx 文件，请手动将 .doc 转换为 .docx")
+
+    temp_docx_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4().hex}.docx")
+    with open(temp_docx_path, "wb") as f:
+        f.write(file.file.read())
+
+    temp_pdf_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4().hex}.pdf")
+    convert(temp_docx_path, temp_pdf_path)
+
+    # 清理 docx
+    os.remove(temp_docx_path)
+    return temp_pdf_path
+```
+
+---
+
+### 🧠 修改 `process.py` 支持 PDF 或 Word 文件
+
+```python
+from convert_docx import convert_docx_to_pdf
+import os, re, csv, fitz
+from uuid import uuid4
+
+def process_file_and_extract(file, top_cm, bottom_cm):
+    filename = file.filename
+    ext = os.path.splitext(filename)[-1].lower()
+
+    if ext == ".pdf":
+        pdf_path = os.path.join("uploads", f"{uuid4().hex}.pdf")
+        with open(pdf_path, "wb") as f:
+            f.write(file.file.read())
+    elif ext == ".docx":
+        pdf_path = convert_docx_to_pdf(file)
+    else:
+        raise ValueError("仅支持 .pdf 和 .docx 文件")
+
+    pdf = fitz.open(pdf_path)
+    filename_base = os.path.splitext(filename)[0]
+    csv_path = f"outputs/{uuid4().hex}_{filename_base}.csv"
+
+    heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')
+    current_heading = None
+    content_dict = {}
+
+    for page in pdf:
+        rect = page.rect
+        top = top_cm * 28.35
+        bottom = bottom_cm * 28.35
+        clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+        blocks = page.get_text("blocks", clip=clip)
+        sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))
+
+        for block in sorted_blocks:
+            text = block[4].strip()
+            if not text:
+                continue
+            match = heading_pattern.match(text)
+            if match:
+                current_heading = f"{match.group(1)} {match.group(4).strip()}"
+                content_dict[current_heading] = ""
+            elif current_heading:
+                content_dict[current_heading] += text + " "
+
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        for heading, content in content_dict.items():
+            writer.writerow([heading, content.strip()])
+
+    return csv_path
+```
+
+---
+
+### 🚀 更新 `app.py`
+
+```python
+@app.post("/process_batch/")
+async def process_batch(files: List[UploadFile] = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    csv_paths = []
+    for file in files:
+        try:
+            csv_path = process_file_and_extract(file, top_cm, bottom_cm)
+            csv_paths.append(csv_path)
+        except Exception as e:
+            return {"error": str(e)}
+
+    if len(csv_paths) == 1:
+        return {"path": csv_paths[0], "is_zip": False}
+    else:
+        zip_path = zip_csvs(csv_paths)
+        return {"path": zip_path, "is_zip": True}
+```
+
+---
+
+### ✅ 最后记得更新前端 `accept` 属性：
+
+```html
+<input type="file" name="files" multiple accept=".pdf,.docx" />
+```
+
+---
+
+如果你需要我打包完整结构或修复运行问题，请告诉我你当前的项目结构或发我你已有的文件目录清单，我可以一次性替你处理完整。是否继续？
+
 以下是完整整合的支持 `.doc`, `.docx`, `.pdf` 文件的结构化提取处理流程，包含：
 
 1. 支持上传 `.doc/.docx/.pdf` 的前端页面
@@ -29,31 +162,32 @@ project/
 ```python
 import os
 import uuid
-from docx import Document
-import comtypes.client  # Windows 专用，确保安装 comtypes
-from tempfile import NamedTemporaryFile
+from docx2pdf import convert
 
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-def convert_doc_to_pdf(input_file, suffix):
-    if suffix == ".docx":
-        output_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4().hex}.pdf")
-        word = comtypes.client.CreateObject("Word.Application")
-        doc = word.Documents.Open(input_file)
-        doc.SaveAs(output_path, FileFormat=17)  # 17 是 PDF 格式
-        doc.Close()
-        word.Quit()
+def convert_doc_to_pdf(input_path, suffix):
+    if suffix not in [".docx"]:
+        raise ValueError("仅支持 .docx 文件，.doc 文件请先手动另存为 .docx")
+
+    # 输出路径
+    output_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4().hex}.pdf")
+
+    # 临时拷贝文件并转换（因为 docx2pdf 只支持路径）
+    temp_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4().hex}.docx")
+    os.rename(input_path, temp_path)
+
+    try:
+        convert(temp_path, output_path)
         return output_path
-    elif suffix == ".doc":
-        output_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4().hex}.pdf")
-        word = comtypes.client.CreateObject("Word.Application")
-        doc = word.Documents.Open(input_file)
-        doc.SaveAs(output_path, FileFormat=17)
-        doc.Close()
-        word.Quit()
-        return output_path
-    return None
+    except Exception as e:
+        print("❌ 转换失败:", e)
+        raise
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
 ```
 
 ---
