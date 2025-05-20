@@ -1,49 +1,166 @@
-当然可以 ✅，将 `.doc` / `.docx` 转换为 `.pdf` 是一个稳妥的方案，特别适合你现有项目的结构（因为已支持 PDF 的裁剪与提取）。以下是你可以采用的完整方案，支持：
+非常好，保持职责单一是个好习惯。我们可以新建一个模块，比如：
 
-* `.pdf`：直接处理
-* `.docx` / `.doc`：先转换为 `.pdf`，再统一处理
-
----
-
-## ✅ 一、依赖库安装（一次性）
-
-你需要安装 [`docx2pdf`](https://github.com/AlJohri/docx2pdf) 或 `comtypes`（Windows 专用）：
-
-```bash
-pip install docx2pdf
+```
+convert_doc.py
 ```
 
-注意：
-
-* `docx2pdf` 仅支持 **Windows** 和 **macOS**（Linux 下可选 LibreOffice）
-* Windows 上它通过调用 Word 来转换，所以本地需安装 Microsoft Word
+专门负责将 `.doc`、`.docx` 文件转换为 `.pdf`，再由你的主处理逻辑统一处理 PDF。
 
 ---
 
-## ✅ 二、修改 `process.py`
+## ✅ convert\_doc.py 示例代码
 
-我们在 `process_pdf_and_extract()` 函数外层包装一个统一入口 `process_file_and_extract()`，如下：
+```python
+import os
+import tempfile
+from pathlib import Path
+from docx2pdf import convert
+from uuid import uuid4
+import shutil
+
+os.makedirs("temp_uploads", exist_ok=True)
+
+def save_upload_file(upload_file) -> str:
+    """
+    将 UploadFile 保存为临时本地文件，返回文件路径
+    """
+    temp_filename = f"{uuid4().hex}_{upload_file.filename}"
+    temp_path = os.path.join("temp_uploads", temp_filename)
+    with open(temp_path, "wb") as f:
+        f.write(upload_file.file.read())
+    return temp_path
+
+
+def convert_word_to_pdf(doc_path: str) -> str:
+    """
+    将 Word 文件（.doc/.docx）转换为 PDF，返回 PDF 路径
+    """
+    output_dir = tempfile.mkdtemp()
+    convert(doc_path, output_dir)
+    
+    # 找到转换后的 PDF 文件
+    for f in Path(output_dir).glob("*.pdf"):
+        pdf_temp_path = os.path.join("temp_uploads", f"{uuid4().hex}_{f.name}")
+        shutil.move(str(f), pdf_temp_path)
+        return pdf_temp_path
+
+    raise RuntimeError("转换 Word 到 PDF 失败")
+```
+
+---
+
+## ✅ 如何在 process.py 中使用
+
+在 `process.py` 顶部引入：
+
+```python
+from convert_doc import save_upload_file, convert_word_to_pdf
+```
+
+然后在 `process_pdf_and_extract()` 中这样用：
+
+```python
+def process_pdf_and_extract(file, top_cm, bottom_cm):
+    filename = file.filename
+    suffix = filename.lower().split('.')[-1]
+
+    # 保存文件
+    local_path = save_upload_file(file)
+
+    # 如果是 Word 文件，先转成 PDF
+    if suffix in ["doc", "docx"]:
+        try:
+            local_path = convert_word_to_pdf(local_path)
+        except Exception as e:
+            raise RuntimeError(f"Word 转换失败: {str(e)}")
+
+    # 打开 PDF 并处理
+    pdf = fitz.open(local_path)
+    ...
+```
+
+---
+
+## ✅ 总结
+
+你现在有了：
+
+* `convert_doc.py`：负责文档保存与 Word 转 PDF
+* `process.py`：负责 PDF 剪裁与内容结构提取
+
+结构更清晰、职责更明确。是否需要我一并生成 `convert_doc.py` 文件？或者还想兼容 Linux 的转换方法？
+
+
+以下是完整的支持 `.pdf`、`.docx` 和 `.doc` 文件的流程及相关代码模块，包括：
+
+* `app.py`：主 FastAPI 接口
+* `convert_doc.py`：将 Word 文档（doc/docx）转为 PDF
+* `process.py`：结构化处理 PDF 内容并生成 CSV
+* `preview.py`：生成 PDF 页面裁剪预览
+
+---
+
+### ✅ 1. `convert_doc.py`（新增：Word 转 PDF）
+
+```python
+import os
+import uuid
+from pathlib import Path
+
+def convert_to_pdf(uploaded_file) -> str:
+    from tempfile import NamedTemporaryFile
+    from docx import Document
+    import subprocess
+
+    suffix = uploaded_file.filename.rsplit('.', 1)[-1].lower()
+    tmp_dir = "temp_docs"
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    with NamedTemporaryFile(delete=False, dir=tmp_dir, suffix=f".{suffix}") as temp_file:
+        temp_file.write(uploaded_file.file.read())
+        temp_file_path = temp_file.name
+
+    if suffix == "docx":
+        output_path = temp_file_path.replace(".docx", ".pdf")
+        try:
+            import docx2pdf
+            docx2pdf.convert(temp_file_path, output_path)
+        except Exception as e:
+            raise RuntimeError(f"docx 转换失败: {e}")
+    elif suffix == "doc":
+        output_path = temp_file_path.replace(".doc", ".pdf")
+        # 用 LibreOffice 转换 doc -> pdf
+        result = subprocess.run([
+            "libreoffice", "--headless", "--convert-to", "pdf",
+            "--outdir", tmp_dir, temp_file_path
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0:
+            raise RuntimeError("LibreOffice 转换 doc 失败：" + result.stderr.decode())
+    else:
+        raise ValueError("不支持的文件类型")
+
+    return output_path
+```
+
+> ⚠️ Linux 上需安装 `libreoffice`，Windows 上推荐用 `docx2pdf`。确保 `.docx` 安装了 `docx2pdf`，`.doc` 则使用 LibreOffice。
+
+---
+
+### ✅ 2. `process.py`
 
 ```python
 import os
 import fitz  # PyMuPDF
 import csv
 import re
-import tempfile
 from uuid import uuid4
-from docx2pdf import convert
 
 os.makedirs("outputs", exist_ok=True)
 
-def convert_to_pdf(input_path: str) -> str:
-    temp_dir = tempfile.mkdtemp()
-    output_pdf_path = os.path.join(temp_dir, os.path.splitext(os.path.basename(input_path))[0] + ".pdf")
-    convert(input_path, output_pdf_path)
-    return output_pdf_path
-
-def process_pdf_and_extract(pdf_path: str, filename_hint: str, top_cm, bottom_cm):
-    pdf = fitz.open(pdf_path)
-    csv_path = f"outputs/{uuid4().hex}_{filename_hint}.csv"
+def process_pdf_and_extract(file_path, top_cm, bottom_cm):
+    pdf = fitz.open(file_path)
+    filename = os.path.basename(file_path).rsplit('.', 1)[0]
+    csv_path = f"outputs/{uuid4().hex}_{filename}.csv"
 
     heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')
     current_heading = None
@@ -57,6 +174,7 @@ def process_pdf_and_extract(pdf_path: str, filename_hint: str, top_cm, bottom_cm
         blocks = page.get_text("blocks", clip=clip)
 
         sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))
+
         for block in sorted_blocks:
             text = block[4].strip()
             if not text:
@@ -74,38 +192,91 @@ def process_pdf_and_extract(pdf_path: str, filename_hint: str, top_cm, bottom_cm
             writer.writerow([heading, content.strip()])
 
     return csv_path
-
-def process_file_and_extract(file, top_cm, bottom_cm):
-    suffix = file.filename.lower().split(".")[-1]
-    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix}") as tmp:
-        tmp.write(file.file.read())
-        tmp_path = tmp.name
-
-    if suffix == "pdf":
-        return process_pdf_and_extract(tmp_path, file.filename.rsplit('.', 1)[0], top_cm, bottom_cm)
-    elif suffix in ["docx", "doc"]:
-        pdf_path = convert_to_pdf(tmp_path)
-        return process_pdf_and_extract(pdf_path, file.filename.rsplit('.', 1)[0], top_cm, bottom_cm)
-    else:
-        raise ValueError("不支持的文件类型，仅支持 PDF / DOCX / DOC")
 ```
 
 ---
 
-## ✅ 三、修改 `app.py` 中调用方式
-
-把 `process_pdf_and_extract` 改为新的 `process_file_and_extract`：
+### ✅ 3. `preview.py`
 
 ```python
-from process import process_file_and_extract
+import fitz  # PyMuPDF
+import uuid
+from convert_doc import convert_to_pdf
 
-# ...
+def generate_preview_image(file, top_cm, bottom_cm):
+    suffix = file.filename.rsplit('.', 1)[-1].lower()
+    if suffix in ['doc', 'docx']:
+        file_path = convert_to_pdf(file)
+    else:
+        from tempfile import NamedTemporaryFile
+        with NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(file.file.read())
+            file_path = tmp.name
+
+    pdf = fitz.open(file_path)
+    page = pdf.load_page(0)
+    rect = page.rect
+    top = top_cm * 28.35
+    bottom = bottom_cm * 28.35
+    clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+
+    pix = page.get_pixmap(clip=clip)
+    preview_path = f"outputs/{uuid.uuid4().hex}_preview.png"
+    pix.save(preview_path)
+
+    return preview_path
+```
+
+---
+
+### ✅ 4. `app.py`
+
+```python
+from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from typing import List
+import os
+from preview import generate_preview_image
+from convert_doc import convert_to_pdf
+from process import process_pdf_and_extract
+from zip_util import zip_csvs
+import tempfile
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+)
+
+@app.get("/")
+async def root():
+    with open("static/index.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read(), status_code=200)
+
+@app.post("/preview/")
+async def preview(file: UploadFile = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    preview_path = generate_preview_image(file, top_cm, bottom_cm)
+    return {"preview_path": preview_path}
 
 @app.post("/process_batch/")
 async def process_batch(files: List[UploadFile] = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
     csv_paths = []
     for file in files:
-        csv_path = process_file_and_extract(file, top_cm, bottom_cm)
+        ext = file.filename.rsplit('.', 1)[-1].lower()
+        if ext in ['pdf']:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(file.file.read())
+                path = tmp.name
+        elif ext in ['doc', 'docx']:
+            path = convert_to_pdf(file)
+        else:
+            continue
+        csv_path = process_pdf_and_extract(path, top_cm, bottom_cm)
         csv_paths.append(csv_path)
 
     if len(csv_paths) == 1:
@@ -113,23 +284,26 @@ async def process_batch(files: List[UploadFile] = File(...), top_cm: float = For
     else:
         zip_path = zip_csvs(csv_paths)
         return {"path": zip_path, "is_zip": True}
+
+@app.get("/download/")
+async def download(path: str):
+    return FileResponse(path, filename=os.path.basename(path))
 ```
 
 ---
 
-## ✅ 四、效果说明
+### ✅ 补充说明：
 
-| 文件类型    | 处理方式              |
-| ------- | ----------------- |
-| `.pdf`  | 原生支持，直接处理         |
-| `.docx` | 用 Word 转为 PDF，再处理 |
-| `.doc`  | 同上                |
+1. 安装依赖（部分 Linux 可选）：
+
+```bash
+pip install python-docx docx2pdf pymupdf
+sudo apt install libreoffice  # 处理 .doc 转换
+```
+
+2. 支持文件扩展：
+   前端 `<input type="file">` 允许添加 `accept=".pdf,.doc,.docx"` 支持多格式选择。
 
 ---
 
-## 如遇问题
-
-* 如果你使用的是 **Linux** 环境，请告知，我可以提供基于 LibreOffice 的转换方案。
-* 如果你希望不依赖 Word，也可以使用 `unoconv` 或 `pandoc`（但布局可能不如 Word 精准）。
-
-需要我进一步帮你自动化部署、Docker化或容错处理也可以继续提。是否现在就试试这个方案？
+如需我一起更新 `zip_util.py` 或 `index.html` 前端部分，也可以继续告诉我。
