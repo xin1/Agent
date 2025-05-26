@@ -1,5 +1,21 @@
 ```
-ERROR: failed to run Build function: python:3.9-windowsservercore-ltsc2022: failed to resolve source metadata for docker.io/library/python:3.9-windowsservercore-ltsc2022: no match for platform in manifest: not found
+1817.1   Connection failed [IP: 146.75.46.132 80]
+1834.1 Get:86 http://deb.debian.org/debian bookworm/main amd64 libreoffice-common all 4:7.4.7-1+deb12u8 [24.5 MB]
+1834.7 E: Failed to fetch http://deb.debian.org/debian/pool/main/f/fonts-noto/fonts-noto-extra_20201225-1_all.deb  Connection failed [IP: 146.75.46.132 80]
+1834.7 E: Failed to fetch http://deb.debian.org/debian/pool/main/t/timgm6mb-soundfont/timgm6mb-soundfont_1.3-5_all.deb  Connection failed [IP: 146.75.46.132 80]
+1834.7 E: Unable to fetch some archives, maybe run apt-get update or try with --fix-missing?
+1834.7 Fetched 500 MB in 27min 12s (306 kB/s)
+------
+Dockerfile:9
+--------------------
+   8 |
+   9 | >>> RUN apt-get update && apt-get install -y libreoffice && \
+  10 | >>>     apt-get clean && rm -rf /var/lib/apt/lists/*
+  11 |
+--------------------
+ERROR: failed to solve: process "/bin/sh -c apt-get update && apt-get install -y libreoffice &&     apt-get clean && rm -rf /var/lib/apt/lists/*" did not complete successfully: exit code: 100
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/o8i3l4tub3b98ya0plhxzpiub
 ```
 ```
 FROM python:3.9-slim
