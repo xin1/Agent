@@ -2,28 +2,28 @@
 ERROR: failed to run Build function: python:3.9-windowsservercore-ltsc2022: failed to resolve source metadata for docker.io/library/python:3.9-windowsservercore-ltsc2022: no match for platform in manifest: not found
 ```
 ```
-FROM python:3.9-windowsservercore-ltsc2022
+FROM python:3.9-slim
 
+# 安装 LibreOffice 和依赖
+RUN apt-get update && apt-get install -y libreoffice && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 设置工作目录
 WORKDIR /app
 
-# 拷贝 LibreOffice 安装包
-COPY LibreOffice_7.6.4_Win_x64.msi C:\\LibreOffice.msi
+# 拷贝项目代码
+COPY . .
 
-# 安装 LibreOffice（静默安装）
-RUN start /wait msiexec /i C:\\LibreOffice.msi /quiet /norestart && del C:\\LibreOffice.msi
+# 安装依赖
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 添加 LibreOffice 到环境变量（可选，如果 soffice.exe 不自动进 PATH）
-ENV PATH="C:\\Program Files\\LibreOffice\\program;${PATH}"
+# 设置 LibreOffice 命令别名
+ENV PATH="/usr/bin/libreoffice:${PATH}"
 
-# 拷贝项目文件
-COPY ./app /app
-COPY ./static /app/static
-COPY requirements.txt .
+# 暴露端口
+EXPOSE 8000
 
-# 安装 Python 依赖
-RUN pip install -r requirements.txt
-
-# 启动 FastAPI 应用
+# 启动 FastAPI 服务
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ```
