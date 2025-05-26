@@ -1,3 +1,29 @@
+```
+FROM python:3.9-windowsservercore-ltsc2022
+
+WORKDIR /app
+
+# 拷贝 LibreOffice 安装包
+COPY LibreOffice_7.6.4_Win_x64.msi C:\\LibreOffice.msi
+
+# 安装 LibreOffice（静默安装）
+RUN start /wait msiexec /i C:\\LibreOffice.msi /quiet /norestart && del C:\\LibreOffice.msi
+
+# 添加 LibreOffice 到环境变量（可选，如果 soffice.exe 不自动进 PATH）
+ENV PATH="C:\\Program Files\\LibreOffice\\program;${PATH}"
+
+# 拷贝项目文件
+COPY ./app /app
+COPY ./static /app/static
+COPY requirements.txt .
+
+# 安装 Python 依赖
+RUN pip install -r requirements.txt
+
+# 启动 FastAPI 应用
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+```
 好的，以下是完整的 **支持 `.doc`、`.docx` 和 `.pdf`** 的结构化提取工具（PDFStruc），包括：
 
 * ✅ Docker 容器（Windows Server Core）；
