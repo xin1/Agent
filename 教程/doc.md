@@ -1,15 +1,8 @@
 ```
-ERROR:    Exception in ASGI application
-Traceback (most recent call last):
-  File "/usr/local/lib/python3.9/site-packages/starlette/responses.py", line 343, in __call__
-    stat_result = await anyio.to_thread.run_sync(os.stat, self.path)
-  File "/usr/local/lib/python3.9/site-packages/anyio/to_thread.py", line 56, in run_sync
-    return await get_async_backend().run_sync_in_worker_thread(
-  File "/usr/local/lib/python3.9/site-packages/anyio/_backends/_asyncio.py", line 2470, in run_sync_in_worker_thread
-    return await future
-  File "/usr/local/lib/python3.9/site-packages/anyio/_backends/_asyncio.py", line 967, in run
-    result = context.run(func, *args)
-FileNotFoundError: [Errno 2] No such file or directory: 'outputs/FusionOS 23.1.3安装BF3驱动'
+RuntimeError: File at path outputs/FusionOS 23.1.3安装BF3驱动 does not exist.
+convert /tmp/tmpjzyi5xil/FusionOS 23.1.3安装BF3驱动&Nvqual测试指导书V1.0-zhangfeng_20250412.docx -> /tmp/tmpjzyi5xil/FusionOS 23.1.3安装BF3驱动&Nvqual测试指导书V1.0-zhangfeng_20250412.pdf using filter : writer_pdf_Export
+INFO:     192.168.65.1:52855 - "POST /process_batch/ HTTP/1.1" 200 OK
+INFO:     192.168.65.1:52855 - "GET /download/?path=outputs/FusionOS%2023.1.3%E5%AE%89%E8%A3%85BF3%E9%A9%B1%E5%8A%A8&Nvqual%E6%B5%8B%E8%AF%95%E6%8C%87%E5%AF%BC%E4%B9%A6V1.0-zhangfeng_20250412.csv HTTP/1.1" 500 Internal Server Error
 ```
 是的，预览也需要加上对 Word 文档的转换，思路和批量处理保持一致：先把 `.doc/.docx` 转成临时 PDF，再传给 `generate_preview_image`。下面给出最小化的改动，只改 `app.py` 的 `/preview/` 路由，和（可选）微调 `preview.py` 以接受文件路径：
 
