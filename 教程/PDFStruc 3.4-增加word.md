@@ -1,250 +1,175 @@
-```
-# 替换 APT 源
-RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.tuna.tsinghua.edu.cn/debian|g' /etc/apt/sources.list && \
-    apt-get update && \
-    apt-get install -y libreoffice --fix-missing && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-```
-```
-FROM python:3.9-slim
-
-# 安装 LibreOffice 和依赖
-RUN apt-get update && apt-get install -y libreoffice && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# 设置工作目录
-WORKDIR /app
-
-# 拷贝项目代码
-COPY . .
-
-# 安装依赖
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 设置 LibreOffice 命令别名
-ENV PATH="/usr/bin/libreoffice:${PATH}"
-
-# 暴露端口
-EXPOSE 8000
-
-# 启动 FastAPI 服务
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-```
-好的，以下是完整的 **支持 `.doc`、`.docx` 和 `.pdf`** 的结构化提取工具（PDFStruc），包括：
-
-* ✅ Docker 容器（Windows Server Core）；
-* ✅ 安装 LibreOffice（用于将 Word 转为 PDF）；
-* ✅ FastAPI 后端处理上传、转换、提取与 CSV 导出；
-* ✅ 前端页面支持上传、预览与下载结构化 CSV。
+以下是完整的基于 Docker 构建的 PDF 和 Word 文件结构化提取工具，支持 `.doc`、`.docx` 和 `.pdf`，使用 LibreOffice 进行 Word → PDF 转换，具备 CSV 输出、预览图生成、静态前端等功能。
 
 ---
 
-## ✅ 一、项目结构
+### 📁 项目结构
 
 ```
-pdfstruc/
-├── app/
-│   ├── main.py                # FastAPI 主入口
-│   ├── convert_doc.py         # Word 转 PDF
-│   ├── extract_pdf.py         # PDF 内容结构提取为 CSV
-│   └── utils.py               # 工具函数
+pdf_tool_app/
+├── app.py              # FastAPI 主应用入口
+├── process.py          # 核心处理逻辑（PDF/Word→结构提取→CSV）
+├── preview.py          # 页面预览图生成模块
+├── zip_util.py         # 多文件打包下载支持
 ├── static/
-│   └── index.html             # 前端页面
-├── requirements.txt           # Python 依赖
-└── Dockerfile                 # Docker 配置
+│   ├── index.html      # 简洁前端页面
+│   └── style.css
+├── outputs/            # 生成的 CSV 与预览图自动存放
+├── Dockerfile          # 构建 Docker 镜像
+└── requirements.txt    # Python 依赖列表
 ```
 
 ---
 
-## 📄 `requirements.txt`
-
-```txt
-fastapi
-uvicorn
-python-docx
-pdfplumber
-pypdf
-python-multipart
-jinja2
-```
-
----
-
-## 🐳 `Dockerfile`（基于 Windows Server Core）
-
-```Dockerfile
-# 使用 Windows 容器基础镜像
-FROM python:3.9-windowsservercore-ltsc2022
-
-WORKDIR /app
-
-# 安装 LibreOffice（静默模式）
-ADD https://download.documentfoundation.org/libreoffice/stable/7.6.4/win/x86_64/LibreOffice_7.6.4_Win_x64.msi libreoffice.msi
-RUN msiexec /i libreoffice.msi /quiet /norestart && del libreoffice.msi
-
-# 环境变量配置
-ENV PATH="C:\\Program Files\\LibreOffice\\program;${PATH}"
-
-# 拷贝文件
-COPY ./app /app
-COPY ./static /app/static
-COPY requirements.txt .
-
-# 安装依赖
-RUN pip install -r requirements.txt
-
-# 启动服务
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
----
-
-## 🧠 `app/convert_doc.py`：Word 转 PDF
-
-```python
-import os
-import subprocess
-
-def convert_to_pdf(input_path: str, output_dir: str) -> str:
-    """
-    使用 LibreOffice 将 Word 文档转换为 PDF
-    """
-    output_path = os.path.join(output_dir, os.path.splitext(os.path.basename(input_path))[0] + ".pdf")
-    command = [
-        "soffice", "--headless", "--convert-to", "pdf",
-        "--outdir", output_dir, input_path
-    ]
-    subprocess.run(command, check=True)
-    return output_path
-```
-
----
-
-## 📄 `app/extract_pdf.py`：提取结构化内容为 CSV
-
-```python
-import pdfplumber
-import csv
-import os
-
-def extract_pdf_structure(pdf_path: str, csv_path: str):
-    rows = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
-            text = page.extract_text()
-            if text:
-                for line in text.split("\n"):
-                    rows.append([f"Page {page_num}", line.strip()])
-
-    with open(csv_path, "w", newline='', encoding="utf-8-sig") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Page", "Content"])
-        writer.writerows(rows)
-```
-
----
-
-## ⚙️ `app/utils.py`：文件保存工具
-
-```python
-import os
-import uuid
-
-UPLOAD_DIR = "uploads"
-OUTPUT_DIR = "outputs"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-def save_upload_file(upload_file) -> str:
-    file_ext = os.path.splitext(upload_file.filename)[-1]
-    file_id = str(uuid.uuid4()) + file_ext
-    file_path = os.path.join(UPLOAD_DIR, file_id)
-    with open(file_path, "wb") as f:
-        f.write(upload_file.file.read())
-    return file_path
-```
-
----
-
-## 🚀 `app/main.py`：FastAPI 主接口
+## ✅ 1. `app.py`
 
 ```python
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from convert_doc import convert_to_pdf
-from extract_pdf import extract_pdf_structure
-from utils import save_upload_file, OUTPUT_DIR
 import os
+from process import handle_file
+from zip_util import zip_outputs
 
 app = FastAPI()
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
     with open("static/index.html", "r", encoding="utf-8") as f:
-        return f.read()
+        return HTMLResponse(content=f.read())
 
 @app.post("/upload/")
 async def upload_file(file: UploadFile = File(...)):
-    uploaded_path = save_upload_file(file)
+    output_path = handle_file(file)
+    return {"message": "Processed", "csv": f"/outputs/{output_path}"}
 
-    ext = os.path.splitext(uploaded_path)[-1].lower()
-    if ext in [".doc", ".docx"]:
-        pdf_path = convert_to_pdf(uploaded_path, OUTPUT_DIR)
-    elif ext == ".pdf":
-        pdf_path = uploaded_path
-    else:
-        return {"error": "Unsupported file type."}
-
-    csv_path = os.path.join(OUTPUT_DIR, os.path.splitext(os.path.basename(pdf_path))[0] + ".csv")
-    extract_pdf_structure(pdf_path, csv_path)
-
-    return {"csv_url": f"/download/{os.path.basename(csv_path)}"}
-
-@app.get("/download/{filename}")
-def download_csv(filename: str):
-    path = os.path.join(OUTPUT_DIR, filename)
-    return FileResponse(path, media_type="text/csv", filename=filename)
+@app.get("/download-zip/")
+async def download_zip():
+    zip_path = zip_outputs()
+    return FileResponse(zip_path, filename="outputs.zip", media_type="application/zip")
 ```
 
 ---
 
-## 🌐 `static/index.html`：前端页面
+## ✅ 2. `process.py`
+
+```python
+import os
+import uuid
+import fitz  # PyMuPDF
+from PyPDF2 import PdfReader
+import csv
+import subprocess
+
+def convert_word_to_pdf(input_path, output_path):
+    subprocess.run([
+        "libreoffice", "--headless", "--convert-to", "pdf", "--outdir",
+        os.path.dirname(output_path), input_path
+    ])
+
+def extract_pdf_structure(pdf_path, csv_path):
+    reader = PdfReader(pdf_path)
+    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Page", "Content"])
+        for i, page in enumerate(reader.pages):
+            text = page.extract_text() or ""
+            writer.writerow([i+1, text.strip()])
+
+def generate_preview(pdf_path, preview_path):
+    doc = fitz.open(pdf_path)
+    if doc.page_count > 0:
+        pix = doc[0].get_pixmap()
+        pix.save(preview_path)
+
+def handle_file(file):
+    if not os.path.exists("outputs"):
+        os.makedirs("outputs")
+    file_ext = file.filename.split(".")[-1].lower()
+    file_id = str(uuid.uuid4())
+    input_path = f"outputs/{file_id}.{file_ext}"
+    with open(input_path, "wb") as f:
+        f.write(file.file.read())
+
+    # Word 转 PDF
+    if file_ext in ["doc", "docx"]:
+        pdf_path = input_path.replace(f".{file_ext}", ".pdf")
+        convert_word_to_pdf(input_path, pdf_path)
+    elif file_ext == "pdf":
+        pdf_path = input_path
+    else:
+        return "Unsupported file"
+
+    # 提取结构并生成 CSV 和预览
+    csv_path = pdf_path.replace(".pdf", ".csv")
+    preview_path = pdf_path.replace(".pdf", ".png")
+    extract_pdf_structure(pdf_path, csv_path)
+    generate_preview(pdf_path, preview_path)
+    return os.path.basename(csv_path)
+```
+
+---
+
+## ✅ 3. `preview.py`（可选，已整合入 process.py）
+
+如需拆出单独模块可保留。
+
+---
+
+## ✅ 4. `zip_util.py`
+
+```python
+import os
+import zipfile
+
+def zip_outputs():
+    zip_path = "outputs/outputs.zip"
+    with zipfile.ZipFile(zip_path, 'w') as zf:
+        for filename in os.listdir("outputs"):
+            if filename.endswith(".csv") or filename.endswith(".png"):
+                zf.write(os.path.join("outputs", filename), filename)
+    return zip_path
+```
+
+---
+
+## ✅ 5. `static/index.html`
 
 ```html
 <!DOCTYPE html>
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>PDFStruc 上传工具</title>
+    <title>PDF & Word 结构提取</title>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <h2>上传 .doc / .docx / .pdf 文件</h2>
-    <form id="upload-form" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".pdf,.doc,.docx" required>
-        <button type="submit">上传并提取</button>
-    </form>
+    <h2>上传 Word / PDF 文档</h2>
+    <input type="file" id="fileInput">
+    <button onclick="upload()">上传并处理</button>
     <div id="result"></div>
 
     <script>
-        document.getElementById("upload-form").addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
+        async function upload() {
+            const file = document.getElementById("fileInput").files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append("file", file);
+
             const res = await fetch("/upload/", {
                 method: "POST",
                 body: formData
             });
-            const json = await res.json();
-            if (json.csv_url) {
-                document.getElementById("result").innerHTML =
-                    `<p>提取完成！<a href="${json.csv_url}" target="_blank">点击下载 CSV</a></p>`;
-            } else {
-                document.getElementById("result").innerText = "处理失败：" + JSON.stringify(json);
-            }
-        });
+            const data = await res.json();
+            document.getElementById("result").innerHTML = `
+                <p>处理完成！</p>
+                <a href="${data.csv}" target="_blank">下载 CSV</a><br>
+                <img src="${data.csv.replace('.csv', '.png')}" width="300">
+                <br><a href="/download-zip/">下载全部输出</a>
+            `;
+        }
     </script>
 </body>
 </html>
@@ -252,23 +177,87 @@ def download_csv(filename: str):
 
 ---
 
-## 🧪 使用方式
+## ✅ 6. `static/style.css`
 
-1. 将上述结构保存到文件夹 `pdfstruc/`
-2. 在该目录中打开命令行，构建镜像：
-
-```bash
-docker build -t pdfstruc .
+```css
+body {
+    font-family: sans-serif;
+    padding: 2em;
+    background-color: #f8f8f8;
+}
+button {
+    margin-top: 10px;
+}
+img {
+    margin-top: 15px;
+    border: 1px solid #ccc;
+}
 ```
-
-3. 运行容器：
-
-```bash
-docker run -p 8000:8000 pdfstruc
-```
-
-4. 访问：`http://localhost:8000` 上传 `.doc` / `.docx` / `.pdf` 文件，提取结构化内容并下载 CSV。
 
 ---
 
-如你需要打包多个文档、增加剪裁或更复杂的结构提取（比如基于标题层级生成知识图谱），我可以继续扩展这套框架。需要我加上压缩下载、多文件上传、结构化智能提取等功能吗？
+## ✅ 7. `requirements.txt`
+
+```
+fastapi
+uvicorn
+python-multipart
+PyPDF2
+PyMuPDF
+```
+
+---
+
+## ✅ 8. `Dockerfile`
+
+```dockerfile
+FROM python:3.10-slim
+
+# 安装 LibreOffice 和依赖
+RUN apt-get update && \
+    apt-get install -y libreoffice && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# 设置工作目录
+WORKDIR /app
+
+# 拷贝代码
+COPY . .
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 创建输出目录
+RUN mkdir -p outputs
+
+# 启动服务
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
+```
+
+---
+
+## 🚀 启动容器构建与运行
+
+```bash
+docker build -t pdfstruc .
+docker run -p 7860:7860 -v $(pwd)/outputs:/app/outputs pdfstruc
+```
+
+然后访问：
+
+```
+http://localhost:7860
+```
+
+---
+
+如需支持中文字体识别更好，推荐在 `Dockerfile` 中额外加：
+
+```dockerfile
+RUN apt-get install -y fonts-noto-cjk
+```
+
+---
+
+如需我为你生成 GitHub 项目、压缩包或提供 Docker Hub 镜像发布建议，也可以继续告诉我。
