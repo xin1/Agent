@@ -1,5 +1,5 @@
 ```
-ERROR: failed to solve: process "/bin/sh -c start /wait msiexec /i C:\\\\LibreOffice.msi /quiet /norestart && del C:\\\\LibreOffice.msi" did not complete successfully: exit code: 127
+ERROR: failed to run Build function: python:3.9-windowsservercore-ltsc2022: failed to resolve source metadata for docker.io/library/python:3.9-windowsservercore-ltsc2022: no match for platform in manifest: not found
 ```
 ```
 FROM python:3.9-windowsservercore-ltsc2022
