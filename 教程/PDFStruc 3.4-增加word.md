@@ -1,3 +1,4 @@
+```
 FROM python:3.9-slim
 
 # 安装 LibreOffice 及中文字体等依赖
@@ -23,7 +24,7 @@ WORKDIR /app
 
 # 启动服务
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
-
+```
 
 下面是一个完整的部署流程和 Python 项目代码，可以**批量将 `.doc` 和 `.docx` 文件转换为 `.pdf` 文件**，适用于 Windows 和 Linux 环境。我们将使用 `python-docx`（仅限读取 `.docx`），`mammoth`（可选美化 HTML），以及 `LibreOffice`（跨平台 doc 转 pdf）或 `win32com.client`（仅限 Windows 上的 Word COM 接口）。
 
