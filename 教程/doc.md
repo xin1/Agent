@@ -1,3 +1,71 @@
+是的，预览也需要加上对 Word 文档的转换，思路和批量处理保持一致：先把 `.doc/.docx` 转成临时 PDF，再传给 `generate_preview_image`。下面给出最小化的改动，只改 `app.py` 的 `/preview/` 路由，和（可选）微调 `preview.py` 以接受文件路径：
+
+---
+
+### 1. 在 `app.py` 的头部引入转换函数
+
+```python
+from convert_doc import convert_doc_to_pdf
+```
+
+### 2. 修改 `/preview/` 接口
+
+把原来的
+
+```python
+@app.post("/preview/")
+async def preview(file: UploadFile = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    preview_path = generate_preview_image(file, top_cm, bottom_cm)
+    return {"preview_path": preview_path}
+```
+
+替换为
+
+```python
+@app.post("/preview/")
+async def preview(file: UploadFile = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    # 如果是 Word，先转 PDF
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    if ext in ("doc", "docx"):
+        # convert_doc_to_pdf 会保存临时 PDF 并返回路径
+        pdf_path = convert_doc_to_pdf(file)
+        # 打开转换后的文件作为二进制流
+        with open(pdf_path, "rb") as f:
+            preview_path = generate_preview_image(f, top_cm, bottom_cm)
+    else:
+        preview_path = generate_preview_image(file, top_cm, bottom_cm)
+
+    return {"preview_path": preview_path}
+```
+
+这样：
+
+* **PDF** 文件直接走原逻辑；
+* **Word** 文件先用 LibreOffice 转为 PDF，再生成预览图。
+
+---
+
+### 3. （可选）微调 `preview.py` 接口签名
+
+如果你希望 `generate_preview_image` 接受一个文件路径而不是 `UploadFile`，也可以把它改成：
+
+```python
+def generate_preview_image(file_or_path, top_cm, bottom_cm):
+    os.makedirs("outputs", exist_ok=True)
+    # 支持传入路径或 UploadFile
+    if isinstance(file_or_path, str):
+        pdf = fitz.open(file_or_path)
+    else:
+        pdf = fitz.open(stream=file_or_path.read(), filetype="pdf")
+    ...
+```
+
+但其实不改也没问题——我们在上面已经把 Word 的流换成了文件流。
+
+---
+
+完成以上改动后，前端“预览”按钮就能同时预览 PDF 和 Word 文件（转成 PDF 后的片段）了。
+
 下面给出最小化的改动方案，只更新或新增几个文件、几段代码，不用全部重写。
 
 ---
