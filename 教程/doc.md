@@ -1,3 +1,76 @@
+你不需要把整个 `convert_doc.py` 重写，只要在它里对上传文件名做一次 “清洗”，把空格、`&`、`/` 等字符替换掉，就能让 LibreOffice CLI 正常工作，也方便后续路径处理。下面是改动示例。
+
+---
+
+### 原 `convert_doc.py`
+
+```python
+def convert_doc_to_pdf(uploaded_file) -> str:
+    tmp_dir = tempfile.mkdtemp()
+    input_path = os.path.join(tmp_dir, uploaded_file.filename)
+    ...
+    subprocess.run([
+        "libreoffice", "--headless",
+        "--convert-to", "pdf",
+        "--outdir", tmp_dir,
+        input_path
+    ], check=True)
+    output_pdf = os.path.join(tmp_dir,
+                              os.path.splitext(uploaded_file.filename)[0] + ".pdf")
+    return output_pdf
+```
+
+---
+
+### 修改后（带文件名清洗）
+
+```python
+import os
+import re
+import subprocess
+import tempfile
+
+def convert_doc_to_pdf(uploaded_file) -> str:
+    """
+    把上传的 .doc/.docx 文件保存到临时目录，先给它一个“安全”不含空格/特殊字符的名字，
+    再用 LibreOffice 转 PDF，返回转换后的 PDF 路径。
+    """
+    # 1) 清洗文件名（去掉空格、&、/，替换为下划线）
+    raw = os.path.splitext(uploaded_file.filename)[0]
+    safe_stem = re.sub(r'[ \t/&\\\\]+', '_', raw)
+    ext = os.path.splitext(uploaded_file.filename)[1]  # 包含“.”的后缀
+
+    # 2) 准备临时目录和文件路径
+    tmp_dir = tempfile.mkdtemp()
+    input_path = os.path.join(tmp_dir, safe_stem + ext)
+
+    # 3) 写入上传内容
+    with open(input_path, "wb") as f:
+        f.write(uploaded_file.file.read())
+
+    # 4) 调用 LibreOffice CLI 转 PDF
+    subprocess.run([
+        "libreoffice", "--headless",
+        "--convert-to", "pdf",
+        "--outdir", tmp_dir,
+        input_path
+    ], check=True)
+
+    # 5) 输出 PDF 文件路径（同样用 safe_stem）
+    output_pdf = os.path.join(tmp_dir, safe_stem + ".pdf")
+    if not os.path.exists(output_pdf):
+        raise RuntimeError(f"File at path {output_pdf} does not exist.")
+    return output_pdf
+```
+
+**改动要点**：
+
+1. **清洗 `uploaded_file.filename`**，生成 `safe_stem`，去除空格和 `&` 等特殊字符；
+2. 保存和转换时使用 `safe_stem + ext`，保证 LibreOffice 能正确处理文件；
+3. 输出 PDF 也用同样的 `safe_stem`，后续取预览或提取都不会再遇到路径解析问题。
+
+完成这一改动，重建镜像后所有带空格或特殊字符的 Word 文档都能正常转换、预览和提取了。
+
 在你贴的日志里，真正的错误是：你生成的 `csv_path` 里含有 **空格** 和 **`&`**，导致后续文件查找不到：
 
 ```
