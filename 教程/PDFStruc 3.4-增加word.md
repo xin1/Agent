@@ -1,3 +1,148 @@
+下面是一个完整的部署流程和 Python 项目代码，可以**批量将 `.doc` 和 `.docx` 文件转换为 `.pdf` 文件**，适用于 Windows 和 Linux 环境。我们将使用 `python-docx`（仅限读取 `.docx`），`mammoth`（可选美化 HTML），以及 `LibreOffice`（跨平台 doc 转 pdf）或 `win32com.client`（仅限 Windows 上的 Word COM 接口）。
+
+---
+
+## ✅ 1. 依赖环境安装
+
+### ✅ Windows 环境推荐依赖：
+
+```bash
+pip install python-docx
+pip install comtypes
+```
+
+确保你的电脑安装了 Microsoft Word，并配置了 Word 的 COM 接口。
+
+### ✅ Linux 或跨平台依赖：
+
+```bash
+sudo apt update
+sudo apt install libreoffice
+```
+
+---
+
+## ✅ 2. 项目结构示例
+
+```
+doc_to_pdf_converter/
+├── convert.py          # 主脚本
+├── docs/               # 输入的 .doc/.docx 文件
+└── output_pdfs/        # 输出的 PDF 文件
+```
+
+---
+
+## ✅ 3. 主程序 `convert.py`
+
+我们提供两个方案：**Windows COM 接口方案（支持 `.doc` 和 `.docx`）** 和 **跨平台 LibreOffice 方案**。
+
+---
+
+### ✅ 方案一：Windows Word COM 批量转换（推荐 Windows 用户）
+
+```python
+import os
+import comtypes.client
+
+def convert_to_pdf_windows(input_path, output_path):
+    word = comtypes.client.CreateObject('Word.Application')
+    word.Visible = False
+
+    for filename in os.listdir(input_path):
+        if filename.endswith(".doc") or filename.endswith(".docx"):
+            doc_path = os.path.join(input_path, filename)
+            pdf_filename = os.path.splitext(filename)[0] + ".pdf"
+            pdf_path = os.path.join(output_path, pdf_filename)
+            try:
+                doc = word.Documents.Open(doc_path)
+                doc.SaveAs(pdf_path, FileFormat=17)
+                doc.Close()
+                print(f"Converted: {filename} -> {pdf_filename}")
+            except Exception as e:
+                print(f"Failed to convert {filename}: {e}")
+    word.Quit()
+
+if __name__ == "__main__":
+    input_dir = "docs"
+    output_dir = "output_pdfs"
+    os.makedirs(output_dir, exist_ok=True)
+    convert_to_pdf_windows(input_dir, output_dir)
+```
+
+---
+
+### ✅ 方案二：Linux/macOS/跨平台 LibreOffice 转换（推荐服务器/容器部署）
+
+```python
+import os
+import subprocess
+
+def convert_to_pdf_libreoffice(input_path, output_path):
+    for filename in os.listdir(input_path):
+        if filename.endswith(".doc") or filename.endswith(".docx"):
+            doc_path = os.path.join(input_path, filename)
+            try:
+                subprocess.run([
+                    'libreoffice',
+                    '--headless',
+                    '--convert-to', 'pdf',
+                    '--outdir', output_path,
+                    doc_path
+                ], check=True)
+                print(f"Converted: {filename}")
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to convert {filename}: {e}")
+
+if __name__ == "__main__":
+    input_dir = "docs"
+    output_dir = "output_pdfs"
+    os.makedirs(output_dir, exist_ok=True)
+    convert_to_pdf_libreoffice(input_dir, output_dir)
+```
+
+---
+
+## ✅ 4. 使用方法
+
+将你的 `.doc` 和 `.docx` 文件放到 `docs/` 目录下，然后运行：
+
+* **Windows 用户：**
+
+```bash
+python convert.py
+```
+
+* **Linux/macOS 用户（需安装 libreoffice）：**
+
+```bash
+python convert.py
+```
+
+---
+
+## ✅ 5. Docker 方式部署（可选）
+
+如你希望部署到服务器并使用 Docker，提供一个简单的 Dockerfile 示例（基于 LibreOffice）：
+
+```Dockerfile
+FROM ubuntu:22.04
+
+RUN apt-get update && \
+    apt-get install -y libreoffice python3 python3-pip && \
+    pip3 install --no-cache-dir python-docx
+
+WORKDIR /app
+COPY . /app
+
+CMD ["python3", "convert.py"]
+```
+
+---
+
+如你希望我打包一个压缩好的示例项目（ZIP）或者加上 Flask/FastAPI 接口用于上传并转换，我也可以继续补充。是否需要？
+
+
 明白了，我将构建一个完整的 Docker 容器版 PDF 结构提取工具，支持上传 `.doc` 和 `.docx` 文件，使用纯 Python 工具（不依赖 LibreOffice）转换为 PDF，并无缝集成到你现有的裁剪 + CSV 提取流程中。稍后我会提供完整的项目结构和代码，便于你直接部署。
 
 
