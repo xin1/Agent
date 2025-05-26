@@ -1,3 +1,100 @@
+在你贴的日志里，真正的错误是：你生成的 `csv_path` 里含有 **空格** 和 **`&`**，导致后续文件查找不到：
+
+```
+outputs/FusionOS 23.1.3安装BF3驱动&Nvqual测试指导书V1.0-zhangfeng_20250412.csv
+```
+
+但 `os.path.exists` 自然找不到这种名字（同时浏览器又 URL 编码得不靠谱），所以报 `File at path ... does not exist`。
+
+---
+
+### 核心思路
+
+* **把原始文件名做一次 “清洗”**（sanitize），把空格、`&`、`/` 等不安全字符替换成下划线或减号；
+* 生成的文件名再拼接到 `outputs/` 下，就一定能读写到了。
+
+---
+
+## 1. 修改 `process.py`
+
+在文件开头 `import` 区域，确保有：
+
+```python
+import os
+import re
+import fitz
+import csv
+from uuid import uuid4
+```
+
+然后把你的 `process_pdf_and_extract` 里的这一段：
+
+```python
+    # 原来的剪裁 + 提取逻辑不变
+    base = filename.rsplit(".", 1)[0]
+    csv_path = f"outputs/{uuid4().hex}_{base}.csv"
+```
+
+**替换为**：
+
+```python
+    # —— 清洗文件名：去掉空格、&、/ 等，并用下划线代替 ——  
+    raw = filename.rsplit(".", 1)[0]
+    safe = re.sub(r'[ \t/&\\\\]+', '_', raw)  # 空格、制表符、/ 和 & 全部替换
+    # 确保 outputs 目录存在
+    os.makedirs("outputs", exist_ok=True)
+    csv_path = os.path.join("outputs", f"{uuid4().hex}_{safe}.csv")
+```
+
+这样，无论上传文件叫啥，你最终在 `outputs/` 里看到的就都是类似：
+
+```
+outputs/5f8c9ab2_FusionOS_23.1.3安装BF3驱动_Nvqual测试指导书V1.0-zhangfeng_20250412.csv
+```
+
+---
+
+## 2. 对 `/download/` 接口的 URL 编码（前端已做，但后端也可以更健壮）
+
+当前你的前端是：
+
+```js
+csvLink.href = `/download/?path=${encodeURIComponent(res.path)}`;
+```
+
+后端可以继续保留原先逻辑，FastAPI 会自动 URL 解码。只要 `res.path`（也就是 `csv_path` ）里没有空格和特殊字符，就不会再解析错误。
+
+---
+
+## 3. （可选）日志打印调试
+
+如果你想在后台确认文件确实存在，可以临时在 `app.py` 的 `download` 里加：
+
+```python
+@app.get("/download/")
+async def download(path: str):
+    print("Download requested for:", path, "exists?", os.path.exists(path))
+    return FileResponse(path, filename=os.path.basename(path))
+```
+
+重启后看控制台，会告诉你到底哪个路径不存在。
+
+---
+
+完成以上 **文件名清洗** 改动，重新构建并重启服务：
+
+```bash
+docker build -t pdfstruc:v3 .
+docker run -p 8000:8000 pdfstruc:v3
+```
+
+之后再试：
+
+1. 上传 `FusionOS 23.1.3安装BF3驱动&Nvqual测试指导书V1.0-zhangfeng_20250412.docx`；
+2. 从前端下载 CSV 链接，应该能成功拿到 `outputs/<uuid>_FusionOS_23.1.3安装BF3驱动_Nvqual测试指导书V1.0-zhangfeng_20250412.csv`。
+
+这样就彻底解决 “找不到文件” 的问题了。
+
 要让预览也支持 Word 文档，最好把 `generate_preview_image` 做两方面改造：
 
 1. **让它能接收 PDF 文件路径**（而不是只接收 `UploadFile` 流）；
