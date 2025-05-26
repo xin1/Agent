@@ -105,7 +105,7 @@ os.makedirs("outputs", exist_ok=True)
 def process_pdf_and_extract(file, top_cm, bottom_cm):
     pdf = fitz.open(stream=file.file.read(), filetype="pdf")
     filename = file.filename.rsplit('.', 1)[0]
-    csv_path = f"outputs/{uuid4().hex}_{filename}.csv"
+    csv_path = f"outputs/{filename}.csv"
 
     heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')  # 1 总则、1.1 标题
     current_heading = None
