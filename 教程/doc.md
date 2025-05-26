@@ -1,3 +1,115 @@
+要让预览也支持 Word 文档，最好把 `generate_preview_image` 做两方面改造：
+
+1. **让它能接收 PDF 文件路径**（而不是只接收 `UploadFile` 流）；
+2. 在 `/preview/` 路由里，对 `.doc/.docx` 先转换，然后再把路径交给它。
+
+下面是精准的改动步骤。
+
+---
+
+## 1. 修改 `preview.py`
+
+把原来的
+
+```python
+import fitz
+from uuid import uuid4
+import os
+
+def generate_preview_image(file, top_cm, bottom_cm):
+    os.makedirs("outputs", exist_ok=True)
+    pdf = fitz.open(stream=file.file.read(), filetype="pdf")
+    page = pdf.load_page(2)
+    ...
+```
+
+替换为：
+
+```python
+import fitz
+from uuid import uuid4
+import os
+
+def generate_preview_image(source, top_cm, bottom_cm):
+    """
+    source: 要么是 UploadFile，要么是 PDF 文件路径字符串
+    """
+    os.makedirs("outputs", exist_ok=True)
+
+    # 1) 打开 PDF
+    if isinstance(source, str):
+        pdf = fitz.open(source)
+    else:
+        pdf = fitz.open(stream=source.file.read(), filetype="pdf")
+
+    # 2) 取第 1 页（或你要的页数）
+    page = pdf.load_page(0)
+
+    rect = page.rect
+    top = top_cm * 28.35
+    bottom = bottom_cm * 28.35
+    clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+
+    pix = page.get_pixmap(dpi=150, clip=clip)
+    preview_path = f"outputs/{uuid4().hex}_preview.png"
+    pix.save(preview_path)
+    return preview_path
+```
+
+> **要点：**
+>
+> * 传入字符串时直接 `fitz.open(path)`；
+> * 传入 `UploadFile` 时保持原逻辑。
+
+---
+
+## 2. 修改 `app.py` 的 `/preview/` 路由
+
+在文件顶部加入：
+
+```python
+from convert_doc import convert_doc_to_pdf
+```
+
+然后把 `/preview/` 改为：
+
+```python
+@app.post("/preview/")
+async def preview(
+    file: UploadFile = File(...),
+    top_cm: float = Form(...),
+    bottom_cm: float = Form(...)
+):
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+
+    if ext in ("doc", "docx"):
+        # 先转换成 PDF，得到临时路径
+        pdf_path = convert_doc_to_pdf(file)
+        # 直接用路径调用预览
+        preview_path = generate_preview_image(pdf_path, top_cm, bottom_cm)
+    else:
+        # PDF 直接走流
+        preview_path = generate_preview_image(file, top_cm, bottom_cm)
+
+    return {"preview_path": preview_path}
+```
+
+> **注意：** `convert_doc_to_pdf` 需要返回文件路径（字符串），不是 `UploadFile`。
+
+---
+
+### 重启测试
+
+1. 重新构建镜像：
+
+   ```bash
+   docker build -t pdfstruc:v3 .
+   ```
+2. 启动容器并打开页面。
+3. 试上传一个 `.docx` 或 `.doc`，点“预览剪裁”，应该在右侧显示生成的 PNG。
+
+这样就能保证 **PDF** 和 **Word** 都能生成预览了。
+
 ```
 RuntimeError: File at path outputs/FusionOS 23.1.3安装BF3驱动 does not exist.
 convert /tmp/tmpjzyi5xil/FusionOS 23.1.3安装BF3驱动&Nvqual测试指导书V1.0-zhangfeng_20250412.docx -> /tmp/tmpjzyi5xil/FusionOS 23.1.3安装BF3驱动&Nvqual测试指导书V1.0-zhangfeng_20250412.pdf using filter : writer_pdf_Export
