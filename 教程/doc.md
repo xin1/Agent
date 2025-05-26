@@ -1,3 +1,97 @@
+请用下面的完整版 `preview.py`（覆盖原文件），它能够兼容三种输入类型：
+
+* 字符串路径（转换后的 PDF 文件）
+* FastAPI 的 `UploadFile`
+* 任何带 `.read()` 方法的二进制流（例如 `open(..., "rb")`）
+
+并确保在 `app.py` 的 `/preview/` 路由中直接传入路径或 `UploadFile`，而 **不再** 对文件做 `open()`，这样就不会出现 `BufferedReader` 没有 `.file` 的问题。
+
+---
+
+### 完整替换：`preview.py`
+
+```python
+import fitz
+from uuid import uuid4
+import os
+from fastapi import UploadFile
+
+def generate_preview_image(source, top_cm: float, bottom_cm: float) -> str:
+    """
+    source: 
+      - UploadFile      （file.file.read() 可用）
+      - str             （PDF 文件路径）
+      - 文件二进制流对象（.read() 可用，如 open(..., "rb")）
+    返回：生成的预览 PNG 相对路径
+    """
+    os.makedirs("outputs", exist_ok=True)
+
+    # 打开 PDF
+    if isinstance(source, str):
+        pdf = fitz.open(source)
+    elif isinstance(source, UploadFile):
+        data = source.file.read()
+        pdf = fitz.open(stream=data, filetype="pdf")
+    else:
+        # 任何有 .read() 方法的流
+        data = source.read()
+        pdf = fitz.open(stream=data, filetype="pdf")
+
+    # 取第一页
+    page = pdf.load_page(0)
+
+    rect = page.rect
+    top = top_cm * 28.35
+    bottom = bottom_cm * 28.35
+    clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+
+    pix = page.get_pixmap(dpi=150, clip=clip)
+    preview_filename = f"{uuid4().hex}_preview.png"
+    preview_path = os.path.join("outputs", preview_filename)
+    pix.save(preview_path)
+
+    return preview_path
+```
+
+---
+
+### 修改 `/preview/` 路由：`app.py`
+
+找到 `app.py` 中的 `/preview/`，改成这样——注意 **不使用** `open()`, 直接传路径或 `UploadFile`:
+
+```python
+from convert_doc import convert_doc_to_pdf
+from preview import generate_preview_image
+
+@app.post("/preview/")
+async def preview(
+    file: UploadFile = File(...),
+    top_cm: float = Form(...),
+    bottom_cm: float = Form(...)
+):
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+
+    if ext in ("doc", "docx"):
+        # Word 先转换为 PDF，得到文件路径
+        pdf_path = convert_doc_to_pdf(file)
+        # 直接传路径给 generate_preview_image
+        preview_path = generate_preview_image(pdf_path, top_cm, bottom_cm)
+    else:
+        # 对 PDF 上传文件，直接传 UploadFile
+        preview_path = generate_preview_image(file, top_cm, bottom_cm)
+
+    return {"preview_path": preview_path}
+```
+
+---
+
+完成上述两处：
+
+1. **覆盖 `preview.py`**
+2. **更新 `app.py` 中的 `/preview/` 处理**
+
+然后重建并运行容器，你就能对 `.doc/.docx` 和 `.pdf` 文件正常生成预览了。
+
 
 
 ```
