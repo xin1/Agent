@@ -1,3 +1,99 @@
+看起来你在 `/preview/` 路由里还在对 Word 转 PDF 后用 `open(..., "rb")` 得到一个 `BufferedReader`，然后把它传给 `generate_preview_image`，所以才进了 `elif isinstance(source, UploadFile)` 之外，落到最后一分支拿 `source.read()`，但 `source` 此时是 `BufferedReader`，没有 `.file`。
+
+最干净的方案就是：**在路由里，永远只给 `generate_preview_image` 传两种类型之一**：
+
+1. 原始的 `UploadFile`（用于 PDF）
+2. 字符串路径（用于 Word → PDF）
+
+绝对不要传已经 `open(...)` 的文件流。下面把最小改动展示给你。
+
+---
+
+## 1. 覆盖 `preview.py`
+
+```python
+# preview.py
+import fitz
+from uuid import uuid4
+import os
+from fastapi import UploadFile
+
+def generate_preview_image(source, top_cm: float, bottom_cm: float) -> str:
+    """
+    source: UploadFile 或 PDF 文件路径（str）
+    """
+    os.makedirs("outputs", exist_ok=True)
+
+    if isinstance(source, str):
+        pdf = fitz.open(source)
+    elif isinstance(source, UploadFile):
+        data = source.file.read()
+        pdf = fitz.open(stream=data, filetype="pdf")
+    else:
+        # 不应该到这儿，抛个异常帮你警告
+        raise ValueError(f"Unsupported preview source type: {type(source)}")
+
+    page = pdf.load_page(0)
+    rect = page.rect
+    top = top_cm * 28.35
+    bottom = bottom_cm * 28.35
+    clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+
+    pix = page.get_pixmap(dpi=150, clip=clip)
+    name = f"{uuid4().hex}_preview.png"
+    path = os.path.join("outputs", name)
+    pix.save(path)
+    return path
+```
+
+---
+
+## 2. 更新 `app.py` 中的 `/preview/` 路由
+
+```python
+# app.py
+from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.responses import HTMLResponse, FileResponse
+# … 其他 imports …
+from convert_doc import convert_doc_to_pdf
+from preview import generate_preview_image
+
+@app.post("/preview/")
+async def preview(
+    file: UploadFile = File(...),
+    top_cm: float = Form(...),
+    bottom_cm: float = Form(...)
+):
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+
+    if ext in ("doc", "docx"):
+        # 不要用 open()，直接拿路径
+        pdf_path = convert_doc_to_pdf(file)
+        source = pdf_path
+    else:
+        # 直接传 UploadFile，generate_preview_image 会自己读 .file.read()
+        source = file
+
+    preview_path = generate_preview_image(source, top_cm, bottom_cm)
+    return {"preview_path": preview_path}
+```
+
+---
+
+### 为什么这样能解决
+
+* **不传 `BufferedReader`**：完全去掉 `with open(..., "rb")` 那一行，不再给 `generate_preview_image` 传已经打开的文件流。
+* **只传字符串或 UploadFile**：`generate_preview_image` 只处理这两种类型，避免进入错误分支。
+
+完成后，重建容器并测试：
+
+```bash
+docker build -t pdfstruc:v3.6 .
+docker run -p 8000:8000 pdfstruc:v3.6
+```
+
+这时上传 Word 和 PDF 调用“预览剪裁”，都应该能正确生成并显示预览图了。
+
 请用下面的完整版 `preview.py`（覆盖原文件），它能够兼容三种输入类型：
 
 * 字符串路径（转换后的 PDF 文件）
