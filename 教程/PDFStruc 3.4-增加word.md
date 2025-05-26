@@ -1,4 +1,7 @@
 ```
+ERROR: failed to solve: process "/bin/sh -c start /wait msiexec /i C:\\\\LibreOffice.msi /quiet /norestart && del C:\\\\LibreOffice.msi" did not complete successfully: exit code: 127
+```
+```
 FROM python:3.9-windowsservercore-ltsc2022
 
 WORKDIR /app
