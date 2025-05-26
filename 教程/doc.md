@@ -1,3 +1,108 @@
+看报错 `'_io.BufferedReader' object has no attribute 'file'`，是因为在 `/preview/` 里你用了：
+
+```python
+with open(pdf_path, "rb") as f:
+    preview_path = generate_preview_image(f, top_cm, bottom_cm)
+```
+
+此时 `f` 是一个 \_io.BufferedReader，没有 `.file` 属性，而你在 `generate_preview_image` 里写的是 `source.file.read()`。最简单也是最干净的做法是：
+
+1. **不要在路由里 open() 再传文件对象**，而是直接把字符串路径传给 `generate_preview_image`；
+2. **让 `generate_preview_image` 同时兼容“UploadFile”、“文件路径”** 和\*\*“任意文件流”\*\* 三种情况。
+
+---
+
+## 具体修改步骤
+
+### 1. `preview.py`：更新 `generate_preview_image`
+
+把原来的实现删掉，替换为下面这个：
+
+```python
+import fitz
+from uuid import uuid4
+import os
+from fastapi import UploadFile
+
+def generate_preview_image(source, top_cm, bottom_cm):
+    """
+    source: UploadFile | 文件路径(str) | bytes 流(二进制)
+    """
+    os.makedirs("outputs", exist_ok=True)
+
+    # 1) 根据类型打开 PDF
+    if isinstance(source, str):
+        # 文件路径
+        pdf = fitz.open(source)
+    elif isinstance(source, UploadFile):
+        # FastAPI 上传文件
+        pdf = fitz.open(stream=source.file.read(), filetype="pdf")
+    else:
+        # 假设是 open(..., "rb") 或者 bytes
+        # 如果是 BufferedReader，则 .read() 也能用
+        data = source.read() if hasattr(source, "read") else source
+        pdf = fitz.open(stream=data, filetype="pdf")
+
+    # 2) 典型做法：预览第一页
+    page = pdf.load_page(0)
+
+    # 3) 裁剪坐标
+    rect = page.rect
+    top = top_cm * 28.35
+    bottom = bottom_cm * 28.35
+    clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+
+    # 4) 渲染并保存
+    pix = page.get_pixmap(dpi=150, clip=clip)
+    preview_path = f"outputs/{uuid4().hex}_preview.png"
+    pix.save(preview_path)
+
+    return preview_path
+```
+
+> 这样，无论你传入的是路径、`UploadFile` 还是已经 `open()` 的文件流，它都能正确处理。
+
+---
+
+### 2. `app.py`：调整 `/preview/` 调用
+
+把这一段：
+
+```python
+if ext in ("doc", "docx"):
+    pdf_path = convert_doc_to_pdf(file)
+    with open(pdf_path, "rb") as f:
+        preview_path = generate_preview_image(f, top_cm, bottom_cm)
+else:
+    preview_path = generate_preview_image(file, top_cm, bottom_cm)
+```
+
+改为 **直接** 传路径或 `UploadFile`：
+
+```python
+if ext in ("doc", "docx"):
+    # 转出来的 PDF 是路径
+    pdf_path = convert_doc_to_pdf(file)
+    preview_path = generate_preview_image(pdf_path, top_cm, bottom_cm)
+else:
+    # 直接传 UploadFile
+    preview_path = generate_preview_image(file, top_cm, bottom_cm)
+```
+
+---
+
+### 3. 重建并测试
+
+```bash
+docker build -t pdfstruc:v3.5 .
+docker run -p 8000:8000 pdfstruc:v3.5
+```
+
+* 对 **.doc/.docx** 点击“预览剪裁”，后台会先转 PDF（路径），再生成预览图；
+* 对 **.pdf** 文件，直接用上传流生成预览。
+
+这样就彻底避免了 `_io.BufferedReader` 没有 `.file` 的问题，也让预览功能在所有格式上一致可用。
+
 你不需要把整个 `convert_doc.py` 重写，只要在它里对上传文件名做一次 “清洗”，把空格、`&`、`/` 等字符替换掉，就能让 LibreOffice CLI 正常工作，也方便后续路径处理。下面是改动示例。
 
 ---
