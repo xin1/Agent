@@ -1,8 +1,60 @@
-看报错 `'_io.BufferedReader' object has no attribute 'file'`，是因为在 `/preview/` 里你用了：
 
-```python
-with open(pdf_path, "rb") as f:
+
+```
+INFO:     192.168.65.1:18770 - "GET / HTTP/1.1" 200 OK
+convert /tmp/tmpuhxmh7bp/imm领料指导书.docx -> /tmp/tmpuhxmh7bp/imm领料指导书.pdf using filter : writer_pdf_Export
+INFO:     192.168.65.1:22621 - "POST /preview/ HTTP/1.1" 500 Internal Server Error
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/uvicorn/protocols/http/h11_impl.py", line 403, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+  File "/usr/local/lib/python3.9/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.9/site-packages/fastapi/applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.9/site-packages/starlette/applications.py", line 112, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.9/site-packages/starlette/middleware/errors.py", line 187, in __call__
+    raise exc
+  File "/usr/local/lib/python3.9/site-packages/starlette/middleware/errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.9/site-packages/starlette/middleware/cors.py", line 93, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "/usr/local/lib/python3.9/site-packages/starlette/middleware/cors.py", line 144, in simple_response
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.9/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.9/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.9/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.9/site-packages/starlette/routing.py", line 714, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.9/site-packages/starlette/routing.py", line 734, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.9/site-packages/starlette/routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.9/site-packages/starlette/routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.9/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.9/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.9/site-packages/starlette/routing.py", line 73, in app
+    response = await f(request)
+  File "/usr/local/lib/python3.9/site-packages/fastapi/routing.py", line 301, in app
+    raw_response = await run_endpoint_function(
+  File "/usr/local/lib/python3.9/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
+    return await dependant.call(**values)
+  File "/app/app.py", line 35, in preview
     preview_path = generate_preview_image(f, top_cm, bottom_cm)
+  File "/app/preview.py", line 7, in generate_preview_image
+    pdf = fitz.open(stream=file.file.read(), filetype="pdf")
+AttributeError: '_io.BufferedReader' object has no attribute 'file'
 ```
 
 此时 `f` 是一个 \_io.BufferedReader，没有 `.file` 属性，而你在 `generate_preview_image` 里写的是 `source.file.read()`。最简单也是最干净的做法是：
