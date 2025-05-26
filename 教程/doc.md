@@ -1,3 +1,95 @@
+好的，我们换一种更“流式”的办法：**统一把 PDF 数据读成 bytes，再用 `io.BytesIO` 包装**，这样就不依赖 `UploadFile.file`，也不再传递 `BufferedReader`。下面是最小化的改法。
+
+---
+
+## 1. 修改 `preview.py`：接收 `BytesIO`
+
+```python
+# preview.py
+import fitz
+from uuid import uuid4
+import os
+import io
+
+def generate_preview_image(data: bytes, top_cm: float, bottom_cm: float) -> str:
+    """
+    data: PDF 的原始 bytes
+    """
+    os.makedirs("outputs", exist_ok=True)
+
+    pdf = fitz.open(stream=data, filetype="pdf")
+    page = pdf.load_page(0)
+
+    rect = page.rect
+    top = top_cm * 28.35
+    bottom = bottom_cm * 28.35
+    clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+
+    pix = page.get_pixmap(dpi=150, clip=clip)
+    preview_filename = f"{uuid4().hex}_preview.png"
+    preview_path = os.path.join("outputs", preview_filename)
+    pix.save(preview_path)
+
+    return preview_path
+```
+
+> **要点**：删掉对 `UploadFile` 和文件路径的判断，统一用 bytes。
+
+---
+
+## 2. 修改 `/preview/` 路由：用 BytesIO
+
+在 `app.py` 中，改 `/preview/` 处理逻辑，先把上传的（PDF 或转换后的 Word→PDF）都读成 bytes，再传给 `generate_preview_image`：
+
+```python
+# app.py
+from fastapi import FastAPI, File, UploadFile, Form
+from convert_doc import convert_doc_to_pdf
+from preview import generate_preview_image
+import os
+
+@app.post("/preview/")
+async def preview(file: UploadFile = File(...),
+                  top_cm: float = Form(...),
+                  bottom_cm: float = Form(...)):
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+
+    if ext in ("doc", "docx"):
+        # 1. 将 Word 转为 PDF，得到临时路径
+        pdf_path = convert_doc_to_pdf(file)
+        # 2. 读取 PDF 文件 bytes
+        with open(pdf_path, "rb") as f:
+            data = f.read()
+    else:
+        # 直接从 UploadFile 读取所有 bytes
+        data = await file.read()
+
+    # 3. 调用统一的 bytes 版预览
+    preview_path = generate_preview_image(data, top_cm, bottom_cm)
+    return {"preview_path": preview_path}
+```
+
+> **说明**：
+>
+> * Word 走转换后读文件 bytes；
+> * PDF 直接从 `UploadFile` 里 `await file.read()` 取 bytes；
+> * 都不再传 `file` 对象本身，避免 `_io.BufferedReader` 问题。
+
+---
+
+### 3. 重建并测试
+
+```bash
+docker build -t pdfstruc-preview-fixed .
+docker run -p 8000:8000 pdfstruc-preview-fixed
+```
+
+1. 打开页面，上传 `.docx`，点击“预览剪裁”
+2. 查看后台日志无错误，右侧应显示生成的 PNG
+
+这样就用 bytes+BytesIO 的方式完全绕过了属性不匹配的问题。
+
+
 看起来你在 `/preview/` 路由里还在对 Word 转 PDF 后用 `open(..., "rb")` 得到一个 `BufferedReader`，然后把它传给 `generate_preview_image`，所以才进了 `elif isinstance(source, UploadFile)` 之外，落到最后一分支拿 `source.read()`，但 `source` 此时是 `BufferedReader`，没有 `.file`。
 
 最干净的方案就是：**在路由里，永远只给 `generate_preview_image` 传两种类型之一**：
