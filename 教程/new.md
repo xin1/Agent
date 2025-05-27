@@ -1,4 +1,7 @@
-#7
+```
+Enable tracemalloc to get the object allocation traceback
+```
+# 7
 请用下面的完整版 `preview.py`（覆盖原文件），它能够兼容三种输入类型：
 
 * 字符串路径（转换后的 PDF 文件）
@@ -93,7 +96,7 @@ async def preview(
 
 然后重建并运行容器，你就能对 `.doc/.docx` 和 `.pdf` 文件正常生成预览了。
 
-#6
+# 6
 你不需要把整个 `convert_doc.py` 重写，只要在它里对上传文件名做一次 “清洗”，把空格、`&`、`/` 等字符替换掉，就能让 LibreOffice CLI 正常工作，也方便后续路径处理。下面是改动示例。
 
 ---
@@ -167,7 +170,7 @@ def convert_doc_to_pdf(uploaded_file) -> str:
 
 完成这一改动，重建镜像后所有带空格或特殊字符的 Word 文档都能正常转换、预览和提取了。
 
-#5
+# 5
 在你贴的日志里，真正的错误是：你生成的 `csv_path` 里含有 **空格** 和 **`&`**，导致后续文件查找不到：
 
 ```
@@ -265,7 +268,7 @@ docker run -p 8000:8000 pdfstruc:v3
 
 这样就彻底解决 “找不到文件” 的问题了。
 
-#4
+# 4
 要让预览也支持 Word 文档，最好把 `generate_preview_image` 做两方面改造：
 
 1. **让它能接收 PDF 文件路径**（而不是只接收 `UploadFile` 流）；
@@ -378,7 +381,7 @@ async def preview(
 
 这样就能保证 **PDF** 和 **Word** 都能生成预览了。
 
-#3
+# 3
 要解决这两个问题，需要做两件事：
 
 1. **在生成 CSV 时，把文件名里的 `&`、空格等 URL 保留字符替换掉**，避免在 URL 中被当成分隔符。
@@ -476,7 +479,7 @@ csvLink.href = `/download/${encodeURIComponent(name)}`;
 
 重新构建并运行即可解决 `FileNotFoundError` 与 500 错误。
 
-#2
+# 2
 是的，预览也需要加上对 Word 文档的转换，思路和批量处理保持一致：先把 `.doc/.docx` 转成临时 PDF，再传给 `generate_preview_image`。下面给出最小化的改动，只改 `app.py` 的 `/preview/` 路由，和（可选）微调 `preview.py` 以接受文件路径：
 
 ---
