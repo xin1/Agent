@@ -1,4 +1,34 @@
-### 🗂️ 项目目录结构（假设项目名为 `pdf_tool_app/`）
+# PDFStruc 3.5-增加word前端优化版
+> code🔗 : [word_tool_v1](../code/word_tool_v1)
+
+## 总结
+
+PDF/Word 预处理工具，提供文件上传、裁剪预览、结构化提取以及文件下载功能。主要功能包括：
+
+1. **文件上传**：支持 PDF 和 Word 文件的上传，可以一次性上传多个文件。
+2. **裁剪预览**：用户可以设置裁剪参数（上下裁剪距离），预览裁剪效果。
+3. **PDF 结构化提取**：将内容结构化提取，并保存为 CSV 文件。
+4. **文件下载**：提供处理后的 CSV 文件或 CSV 压缩包的下载功能。
+
+## 使用步骤
+
+1. **上传文件**：
+   - 用户访问主页，点击或拖放 PDF/Word 文件到上传区域。
+
+2. **设置裁剪参数**：
+   - 用户设置上下裁剪距离（单位：厘米）。
+
+3. **预览裁剪效果**：
+   - 用户点击“预览剪裁效果”按钮，生成并显示裁剪预览图。
+
+4. **处理文件**：
+   - 用户点击“开始处理文件”按钮，提交处理请求。
+   - 后端处理文件，生成 CSV 文件或 ZIP 压缩包。
+
+5. **下载文件**：
+   - 处理完成后，用户点击“下载CSV文件”或“下载CSV压缩包”链接，下载处理结果。
+
+## 项目目录结构
 
 ```
 word_tool_app/
@@ -15,7 +45,9 @@ word_tool_app/
 └── requirements.txt
 ```
 
+## 主要文件和功能
 ### requirements.txt
+> 列出项目所需的 Python 包。
 ```txt
 # pymupdf
 # pandas
@@ -38,6 +70,8 @@ pypandoc
 pdfplumber
 ```
 ### process.py
+> 主处理逻辑，包括 PDF 裁剪和结构化提取。
+> 使用 `PyMuPDF` 库处理 PDF 文件，将内容提取并保存为 CSV 文件。
 ```py
 from io import BytesIO
 import os
@@ -97,6 +131,9 @@ def process_pdf_and_extract(file, top_cm, bottom_cm, filename=None):
 
 ```
 ### app.py
+> FastAPI 应用入口，处理文件上传、预览、处理和下载请求。
+> 配置静态文件服务、CORS 中间件。
+> 路由定义：`/`（主页）、`/preview/`（预览）、`/process_batch/`（批量处理）、`/download/`（下载）。
 ```py
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import FileResponse, HTMLResponse
@@ -196,6 +233,8 @@ async def download(path: str = Query(..., alias="path")):
     return FileResponse(path, filename=os.path.basename(path))
 ```
 ### convert_doc.py
+> 将 Word 文件转换为 PDF。
+> 使用 `subprocess` 调用 LibreOffice 命令行工具进行转换。
 ```py
 import os
 import re
@@ -235,6 +274,8 @@ def convert_doc_to_pdf(uploaded_file) -> str:
     return output_pdf
 ```
 ### Dockerfile
+> 定义 Docker 镜像构建步骤。
+> 安装依赖项（包括 LibreOffice）和 Python 包。
 ```
 # Stage 2: 构建你的 Python 应用
 FROM python:3.9-slim
@@ -258,6 +299,8 @@ CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ```
 ### preview.py
+> 生成裁剪预览图。
+> 使用 `PyMuPDF` 库对 PDF 进行裁剪并生成预览图片。
 ```py
 import fitz
 from uuid import uuid4
@@ -302,6 +345,7 @@ def generate_preview_image(source, top_cm: float, bottom_cm: float) -> str:
     return preview_path
 ```
 ### zip_util.py
+> 打包多个 CSV 文件为 ZIP 压缩包。
 ```py
 import zipfile
 from uuid import uuid4
@@ -315,6 +359,8 @@ def zip_csvs(paths):
     return zip_name
 ```
 ### index.html
+> 前端页面，提供文件上传、裁剪设置、预览和处理功能。
+> 使用 JavaScript 处理文件上传、预览生成和处理请求。
 ```html
 <!DOCTYPE html>
 <html lang="zh">
