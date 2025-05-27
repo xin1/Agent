@@ -1,130 +1,109 @@
 # 8
-**你希望实现的功能是：**前端上传多个 PDF / Word 文件后，在页面右侧可以点击 “下一页/上一页箭头” 来切换预览不同文件内容** —— 这是一种常见的“多文档预览切换”UI。
+为了实现“**多个文件预览切换功能**”，你需要：
+
+* **记录当前预览的是哪个文件**
+* 使用左右箭头按钮来切换预览的文件（即不同文件的第一页截图）
+* 每当切换时，更新右侧 `<img id="preview-img">` 的 `src` 来源
 
 ---
 
-## ✅ 实现方案概览（不改你现有 HTML 的结构前提下）
+### ✅ 前端功能实现方案如下：
 
-### 1. **后端准备多个文件预览图像**
+#### 🔧 1. HTML 中添加左右按钮
 
-你的后端本来就支持 PDF 裁剪预览，那么你要：
-
-* 为每个上传的文件生成一个预览图（建议生成第一页）
-* 将这些图像路径传回前端
-* 返回格式类似：
-
-```json
-{
-  "previews": [
-    {"filename": "合同1.pdf", "image_url": "/previews/tmp/abc_1.png"},
-    {"filename": "合同2.pdf", "image_url": "/previews/tmp/xyz_1.png"},
-    ...
-  ]
-}
-```
-
----
-
-### 2. **前端用 JavaScript 切换图片和文件名**
-
-在页面右侧预览区，保持一个 `<img>` 元素用于展示当前预览图：
+在 `<div class="right-panel">` 中的 `#preview-container` 旁边加入左右按钮（Font Awesome 的箭头图标）：
 
 ```html
-<img id="preview-image" src="" alt="预览图" />
-<div id="file-name"></div>
-
-<button onclick="prevFile()">←</button>
-<button onclick="nextFile()">→</button>
+<div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+  <button class="btn btn-secondary" onclick="prevPreview()"><i class="fas fa-arrow-left"></i></button>
+  <div id="preview-container">
+    <img id="preview-img" src="" alt="预览图像">
+    <p id="preview-file-name" style="margin-top: 8px; color: #666;"></p>
+  </div>
+  <button class="btn btn-secondary" onclick="nextPreview()"><i class="fas fa-arrow-right"></i></button>
+</div>
 ```
 
 ---
 
-### 3. **JavaScript 控制切换逻辑**
+#### 🧠 2. JavaScript 脚本逻辑：管理当前预览索引
+
+在 `<script>` 标签或外部 JS 文件中添加以下逻辑：
 
 ```html
 <script>
-let previewList = []; // 由后端接口返回赋值
-let currentIndex = 0;
+let previewImages = [];  // 存储所有上传文件对应的预览图路径
+let previewFileNames = [];
+let currentPreviewIndex = 0;
 
-function updatePreview() {
-    if (previewList.length === 0) return;
-    const item = previewList[currentIndex];
-    document.getElementById('preview-image').src = item.image_url;
-    document.getElementById('file-name').innerText = item.filename;
+function previewPDF() {
+  const input = document.getElementById('pdf-input');
+  const files = input.files;
+  if (!files || files.length === 0) return;
+
+  previewImages = [];
+  previewFileNames = [];
+
+  for (let i = 0; i < files.length; i++) {
+    // 后端预览图片路径应为 `/preview/filename.png` 格式，与你 FastAPI 后端匹配
+    const file = files[i];
+    const fileName = file.name;
+    const safeName = encodeURIComponent(fileName);
+    previewImages.push(`/preview/${safeName}.png`);
+    previewFileNames.push(fileName);
+  }
+
+  currentPreviewIndex = 0;
+  updatePreviewImage();
 }
 
-function nextFile() {
-    if (currentIndex < previewList.length - 1) {
-        currentIndex++;
-        updatePreview();
-    }
+function updatePreviewImage() {
+  const img = document.getElementById('preview-img');
+  const name = document.getElementById('preview-file-name');
+  if (previewImages.length === 0) return;
+
+  img.src = previewImages[currentPreviewIndex];
+  img.style.display = 'block';
+  name.innerText = previewFileNames[currentPreviewIndex];
 }
 
-function prevFile() {
-    if (currentIndex > 0) {
-        currentIndex--;
-        updatePreview();
-    }
+function nextPreview() {
+  if (previewImages.length === 0) return;
+  currentPreviewIndex = (currentPreviewIndex + 1) % previewImages.length;
+  updatePreviewImage();
+}
+
+function prevPreview() {
+  if (previewImages.length === 0) return;
+  currentPreviewIndex = (currentPreviewIndex - 1 + previewImages.length) % previewImages.length;
+  updatePreviewImage();
 }
 </script>
 ```
 
 ---
 
-### 4. **接收后端返回的数据填入 `previewList`**
+#### 🖼️ 3. 后端图片准备
 
-假设你上传成功并用 AJAX 得到了后端返回的 `previewList`，如下赋值：
-
-```javascript
-fetch('/preview', {
-    method: 'POST',
-    body: yourFormData
-})
-.then(response => response.json())
-.then(data => {
-    previewList = data.previews;
-    currentIndex = 0;
-    updatePreview();
-});
-```
-
----
-
-## ✅ 后端示例：返回多个预览图路径
-
-FastAPI 后端 `/preview` 逻辑中，预处理多个文件：
+你 FastAPI 后端需要保证 `/preview/xxx.pdf.png` 文件在浏览器中可以访问。比如这样处理：
 
 ```python
-@app.post("/preview")
-async def preview(files: List[UploadFile] = File(...)):
-    preview_list = []
-    for file in files:
-        saved_path = await save_upload_file(file, "tmp_uploads")
-        image_path = generate_preview(saved_path)  # 生成一张预览图，返回路径
-        preview_list.append({
-            "filename": file.filename,
-            "image_url": f"/static/previews/{os.path.basename(image_path)}"
-        })
-    return {"previews": preview_list}
+from fastapi.staticfiles import StaticFiles
+app.mount("/preview", StaticFiles(directory="preview_images"), name="preview")
 ```
 
 ---
 
-### 💡 补充建议
+### ✅ 效果预期：
 
-* 若你预览的是 PDF，建议只转第一页，性能更好。
-* 若你预览 Word 文件，先转为 PDF，然后同样转为图片。
-
----
-
-## ✅ 最终效果
-
-上传多个文件后，右边预览区显示第一个文件的预览图，用户点击箭头即可切换浏览不同文件的第一页。
+1. 用户上传多个 PDF
+2. 点击“预览剪裁效果”按钮会自动加载每个 PDF 对应的 `.png` 预览图
+3. 点击左右箭头切换查看不同文件的预览图像
 
 ---
 
-如果你希望我配合你当前页面结构精细插入 JavaScript 与预览切换逻辑，也可以发我你的前端 `HTML + JS` 页面片段，我可以为你无缝改造。是否需要？
-**
+如果你希望我同时更新一整段完整 HTML 和 JS 的合并代码，我也可以为你生成。是否需要？
+
 # 7
 请用下面的完整版 `preview.py`（覆盖原文件），它能够兼容三种输入类型：
 
