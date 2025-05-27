@@ -1,3 +1,125 @@
+# 10
+为了支持多个文件上传并且每个文件使用不同的裁剪参数（`top_cm` / `bottom_cm`），且**尽可能不改动现有结构**，你需要做以下修改：
+
+---
+
+## ✅ **前端修改方式**
+
+### 如果你使用的是原生 HTML + JS（未使用框架），那么上传多个文件和多个参数的方法如下：
+
+```html
+<form id="previewForm" enctype="multipart/form-data" method="post">
+  <input type="file" name="files" multiple>
+
+  <div id="params">
+    <!-- 动态生成参数对 -->
+    <div>
+      <input type="number" step="0.1" name="top_cm" placeholder="Top(cm)">
+      <input type="number" step="0.1" name="bottom_cm" placeholder="Bottom(cm)">
+    </div>
+  </div>
+
+  <button type="submit">生成预览</button>
+</form>
+
+<script>
+document.getElementById("previewForm").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  const form = e.target;
+  const formData = new FormData();
+
+  const files = form.querySelector('input[name="files"]').files;
+  const topCmList = form.querySelectorAll('input[name="top_cm"]');
+  const bottomCmList = form.querySelectorAll('input[name="bottom_cm"]');
+
+  for (let i = 0; i < files.length; i++) {
+    formData.append("files", files[i]);
+    formData.append("top_cm_list", topCmList[i].value);
+    formData.append("bottom_cm_list", bottomCmList[i].value);
+  }
+
+  const response = await fetch("/preview/", {
+    method: "POST",
+    body: formData
+  });
+
+  const result = await response.json();
+  console.log(result);
+});
+</script>
+```
+
+> 每个文件配一个 top\_cm 和 bottom\_cm 输入框即可。你可以用 JS 动态生成这些输入框。
+
+---
+
+## ✅ **后端 FastAPI 修改（预览接口）**
+
+### 文件：`preview.py`
+
+```python
+from fastapi import APIRouter, UploadFile, File, Form
+from typing import List, Union
+from convert_doc import convert_doc_to_pdf
+from process import generate_preview_image
+
+router = APIRouter()
+
+@router.post("/preview/")
+async def preview_multiple(
+    files: List[UploadFile] = File(...),
+    top_cm_list: List[float] = Form(...),
+    bottom_cm_list: List[float] = Form(...)
+):
+    """
+    同时预览多个文件，每个文件对应一个裁剪参数
+    """
+    results = []
+
+    for i, file in enumerate(files):
+        top_cm = top_cm_list[i]
+        bottom_cm = bottom_cm_list[i]
+        ext = file.filename.rsplit(".", 1)[-1].lower()
+
+        if ext in ("doc", "docx"):
+            pdf_path = convert_doc_to_pdf(file)
+            preview_path = generate_preview_image(pdf_path, top_cm, bottom_cm)
+        else:
+            preview_path = generate_preview_image(file, top_cm, bottom_cm)
+
+        results.append({
+            "filename": file.filename,
+            "preview_path": preview_path
+        })
+
+    return {"previews": results}
+```
+
+---
+
+## ✅ `convert_doc.py`：无需改动
+
+你已有的 `convert_doc_to_pdf` 函数逻辑是可以复用的。
+
+---
+
+## ✅ `process.py`：无需修改
+
+你的 `generate_preview_image()` 函数本身就支持单个文件的处理。多个文件的支持是由 `preview.py` 的循环实现的。
+
+---
+
+### ✅ 最终总结
+
+| 部分               | 是否需要修改 | 说明                                      |
+| ---------------- | ------ | --------------------------------------- |
+| 前端 HTML / JS     | ✅      | 使用 FormData 传多个文件和参数数组                  |
+| `preview.py`     | ✅      | 修改为支持 `List[UploadFile]`, `List[float]` |
+| `convert_doc.py` | ❌      | 保持不变                                    |
+| `process.py`     | ❌      | 保持不变                                    |
+
+如你确认你使用的是某个框架（如 Vue、React 或 Bootstrap Template），也可以告诉我，我能针对性提供前端代码。是否需要我将整个项目结构或 Docker 也一起更新？
+
 # 9
 ```
 import fitz
