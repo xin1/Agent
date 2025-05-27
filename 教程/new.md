@@ -1,4 +1,5 @@
 # 11
+```
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -64,6 +65,8 @@ async def process_batch(files: List[UploadFile] = File(...), top_cm: float = For
 @app.get("/download/")
 async def download(path: str = Query(..., alias="path")):
     return FileResponse(path, filename=os.path.basename(path))
+```
+
 # 10
 ```
 # preview.py
