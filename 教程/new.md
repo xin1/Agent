@@ -1,3 +1,88 @@
+# 13
+```
+# process.py
+
+import fitz  # PyMuPDF
+import csv
+import os
+from uuid import uuid4
+from io import BytesIO
+from convert_doc import convert_doc_to_pdf
+
+def process_pdf_and_extract(source, top_cm, bottom_cm, filename=None):
+    # 判断输入来源并打开 PDF
+    if isinstance(source, BytesIO):
+        doc = fitz.open(stream=source.read(), filetype="pdf")
+        if not filename:
+            filename = f"{uuid4().hex}.pdf"
+    elif hasattr(source, "filename"):  # FastAPI UploadFile
+        ext = source.filename.rsplit(".", 1)[-1].lower()
+        if ext in ("doc", "docx"):
+            pdf_path = convert_doc_to_pdf(source)
+            doc = fitz.open(pdf_path)
+            filename = os.path.splitext(os.path.basename(source.filename))[0] + ".pdf"
+        else:
+            doc = fitz.open(stream=source.file.read(), filetype="pdf")
+            filename = source.filename
+    else:
+        raise ValueError("Unsupported file source")
+
+    # 计算裁剪区域
+    top_px = top_cm * 28.35
+    bottom_px = bottom_cm * 28.35
+
+    # 创建输出文件路径
+    base_name = os.path.splitext(os.path.basename(filename))[0]
+    output_dir = "outputs"
+    os.makedirs(output_dir, exist_ok=True)
+    csv_path = os.path.join(output_dir, f"{base_name}.csv")
+
+    # 写入 CSV（简单提取每页文本作为示例）
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["页码", "内容"])
+
+        for i, page in enumerate(doc):
+            rect = page.rect
+            clipped = fitz.Rect(
+                rect.x0,
+                rect.y0 + top_px,
+                rect.x1,
+                rect.y1 - bottom_px
+            )
+            text = page.get_textbox(clipped).strip()
+            if text:
+                writer.writerow([i + 1, text])
+
+    return csv_path
+
+```
+```
+# convert_doc.py
+
+import os
+import subprocess
+import tempfile
+from uuid import uuid4
+
+def convert_doc_to_pdf(upload_file):
+    temp_dir = tempfile.mkdtemp()
+    input_path = os.path.join(temp_dir, upload_file.filename)
+
+    with open(input_path, "wb") as f:
+        f.write(upload_file.file.read())
+
+    # LibreOffice 转换命令
+    subprocess.run([
+        "libreoffice", "--headless", "--convert-to", "pdf",
+        "--outdir", temp_dir, input_path
+    ], check=True)
+
+    base = os.path.splitext(os.path.basename(input_path))[0]
+    output_path = os.path.join(temp_dir, f"{base}.pdf")
+    return output_path
+
+```
 # 12
 ```
 from io import BytesIO
