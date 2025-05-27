@@ -1,13 +1,39 @@
 # 10
 ```
-<div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-  <button class="btn btn-secondary" onclick="prevPreview()"><i class="fas fa-arrow-left"></i></button>
-  <div id="preview-container" style="max-width: 600px; max-height: 800px; overflow: auto; border: 1px solid #ddd; padding: 10px;">
-    <img id="preview-img" src="" alt="预览图像" style="max-width: 100%; max-height: 100%; display: block; margin: auto;">
-    <p id="preview-file-name" style="margin-top: 8px; color: #666; text-align: center;"></p>
-  </div>
-  <button class="btn btn-secondary" onclick="nextPreview()"><i class="fas fa-arrow-right"></i></button>
-</div>
+# preview.py
+from fastapi import APIRouter, UploadFile, File, Form
+from typing import List
+from convert_doc import convert_doc_to_pdf
+from process import generate_preview_image
+
+router = APIRouter()
+
+@router.post("/preview/")
+async def preview_multiple(
+    files: List[UploadFile] = File(...),
+    top_cm_list: List[float] = Form(...),
+    bottom_cm_list: List[float] = Form(...)
+):
+    results = []
+
+    for i, file in enumerate(files):
+        top_cm = top_cm_list[i]
+        bottom_cm = bottom_cm_list[i]
+        ext = file.filename.rsplit(".", 1)[-1].lower()
+
+        if ext in ("doc", "docx"):
+            pdf_path = convert_doc_to_pdf(file)
+            preview_path = generate_preview_image(pdf_path, top_cm, bottom_cm)
+        else:
+            preview_path = generate_preview_image(file, top_cm, bottom_cm)
+
+        results.append({
+            "filename": file.filename,
+            "preview_path": preview_path
+        })
+
+    return {"previews": results}
+
 ```
 
 # 9
