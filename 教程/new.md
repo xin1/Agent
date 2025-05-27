@@ -1,3 +1,131 @@
+# 9
+```
+import fitz
+from uuid import uuid4
+import os
+from fastapi import UploadFile
+
+def generate_preview_image(source, top_cm: float, bottom_cm: float) -> str:
+    """
+    source: 
+      - UploadFile      （file.file.read() 可用）
+      - str             （PDF 文件路径）
+      - 文件二进制流对象（.read() 可用，如 open(..., "rb")）
+    返回：生成的预览 PNG 相对路径
+    """
+    os.makedirs("outputs", exist_ok=True)
+
+    # 打开 PDF
+    if isinstance(source, str):
+        pdf = fitz.open(source)
+    elif isinstance(source, UploadFile):
+        data = source.file.read()
+        pdf = fitz.open(stream=data, filetype="pdf")
+    else:
+        # 任何有 .read() 方法的流
+        data = source.read()
+        pdf = fitz.open(stream=data, filetype="pdf")
+
+    # 取第4页
+    page = pdf.load_page(3)
+
+    rect = page.rect
+    top = top_cm * 28.35
+    bottom = bottom_cm * 28.35
+    clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+
+    pix = page.get_pixmap(dpi=150, clip=clip)
+    preview_filename = f"{uuid4().hex}_preview.png"
+    preview_path = os.path.join("outputs", preview_filename)
+    pix.save(preview_path)
+
+    return preview_path
+
+import os
+import re
+import subprocess
+import tempfile
+
+def convert_doc_to_pdf(uploaded_file) -> str:
+    """
+    把上传的 .doc/.docx 文件保存到临时目录，先给它一个“安全”不含空格/特殊字符的名字，
+    再用 LibreOffice 转 PDF，返回转换后的 PDF 路径。
+    """
+    # 1) 清洗文件名（去掉空格、&、/，替换为下划线）
+    raw = os.path.splitext(uploaded_file.filename)[0]
+    safe_stem = re.sub(r'[ \t/&\\\\]+', '_', raw)
+    ext = os.path.splitext(uploaded_file.filename)[1]  # 包含“.”的后缀
+
+    # 2) 准备临时目录和文件路径
+    tmp_dir = tempfile.mkdtemp()
+    input_path = os.path.join(tmp_dir, safe_stem + ext)
+
+    # 3) 写入上传内容
+    with open(input_path, "wb") as f:
+        f.write(uploaded_file.file.read())
+
+    # 4) 调用 LibreOffice CLI 转 PDF
+    subprocess.run([
+        "libreoffice", "--headless",
+        "--convert-to", "pdf",
+        "--outdir", tmp_dir,
+        input_path
+    ], check=True)
+
+    # 5) 输出 PDF 文件路径（同样用 safe_stem）
+    output_pdf = os.path.join(tmp_dir, safe_stem + ".pdf")
+    if not os.path.exists(output_pdf):
+        raise RuntimeError(f"File at path {output_pdf} does not exist.")
+    return output_pdf
+
+import os
+import fitz  # PyMuPDF
+import csv
+import re
+from uuid import uuid4
+
+os.makedirs("outputs", exist_ok=True)
+
+def process_pdf_and_extract(file, top_cm, bottom_cm):
+    pdf = fitz.open(stream=file.file.read(), filetype="pdf")
+    filename = file.filename.rsplit('.', 1)[0]
+    csv_path = f"outputs/{filename}.csv"
+
+    heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')  # 1 总则、1.1 标题
+    current_heading = None
+    content_dict = {}
+
+    for page in pdf:
+        rect = page.rect
+        top = top_cm * 28.35
+        bottom = bottom_cm * 28.35
+        clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+        blocks = page.get_text("blocks", clip=clip)
+
+        sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))  # 从上到下排序
+
+        for block in sorted_blocks:
+            text = block[4].strip()
+            if not text:
+                continue
+
+            match = heading_pattern.match(text)
+            if match:
+                current_heading = f"{match.group(1)} {match.group(4).strip()}"
+                content_dict[current_heading] = ""
+            elif current_heading:
+                content_dict[current_heading] += text + " "
+
+    # ✅ 写入 CSV：使用 utf-8-sig 编码防止乱码
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        # writer.writerow(["标题", "内容"])
+        for heading, content in content_dict.items():
+            writer.writerow([heading, content.strip()])
+
+    return csv_path
+
+```
 # 8
 为了实现“**多个文件预览切换功能**”，你需要：
 
