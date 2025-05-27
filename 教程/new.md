@@ -1,3 +1,31 @@
+# 12
+```
+from io import BytesIO
+
+@app.post("/process_batch/")
+async def process_batch(files: List[UploadFile] = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    csv_paths = []
+
+    for file in files:
+        ext = file.filename.rsplit(".", 1)[-1].lower()
+
+        if ext in ("doc", "docx"):
+            # ✅ Word 文件原逻辑不变
+            csv_path = process_pdf_and_extract(file, top_cm, bottom_cm)
+        else:
+            # ✅ PDF：缓存文件内容用于 BytesIO 处理
+            file_bytes = await file.read()
+            csv_path = process_pdf_and_extract(BytesIO(file_bytes), top_cm, bottom_cm, filename=file.filename)
+
+        csv_paths.append(csv_path)
+
+    if len(csv_paths) == 1:
+        return {"path": csv_paths[0], "is_zip": False}
+    else:
+        zip_path = zip_csvs(csv_paths)
+        return {"path": zip_path, "is_zip": True}
+
+```
 # 11
 ```
 from fastapi import FastAPI, File, UploadFile, Form
