@@ -1,56 +1,158 @@
-# PDFStruc 3.3 版本
+# 更新至PDFStruc 3.5-增加word，前端优化版
+> code🔗 : [word_tool_v1](./code/word_tool_v1)
 
-> 以下是完整的 PDF 剪裁与结构提取工具（支持预览、CSV 提取、进度条、多文档打包下载）前后端 + Docker 部署方案：  
-> code🔗 : [pdf_tool_v1](code/pdf_tool_v1)  
----
+## 总结
 
-## ✅ 一、功能总览
+PDF/Word 预处理工具，提供文件上传、裁剪预览、结构化提取以及文件下载功能。主要功能包括：
 
-支持功能：
+1. **文件上传**：支持 PDF 和 Word 文件的上传，可以一次性上传多个文件。
+2. **裁剪预览**：用户可以设置裁剪参数（上下裁剪距离），预览裁剪效果。
+3. **PDF 结构化提取**：将内容结构化提取，并保存为 CSV 文件。
+4. **文件下载**：提供处理后的 CSV 文件或 CSV 压缩包的下载功能。
 
-* ✅ 拖拽/多选上传 PDF；
-* ✅ 设置上下裁剪距离；
-* ✅ 剪裁效果预览；
-* ✅ 结构化数据提取为 CSV；
-* ✅ 多文档压缩打包；
-* ✅ 下载按钮动态显示；
-* ✅ 进度条；
-* ✅ Docker 一键部署。
+## 使用步骤
 
----
+1. **上传文件**：
+   - 用户访问主页，点击或拖放 PDF/Word 文件到上传区域。
 
-## 📁 二、目录结构
+2. **设置裁剪参数**：
+   - 用户设置上下裁剪距离（单位：厘米）。
+
+3. **预览裁剪效果**：
+   - 用户点击“预览剪裁效果”按钮，生成并显示裁剪预览图。
+
+4. **处理文件**：
+   - 用户点击“开始处理文件”按钮，提交处理请求。
+   - 后端处理文件，生成 CSV 文件或 ZIP 压缩包。
+
+5. **下载文件**：
+   - 处理完成后，用户点击“下载CSV文件”或“下载CSV压缩包”链接，下载处理结果。
+
+## 项目目录结构
 
 ```
-pdf-tool/
-├── app.py
-├── process.py
-├── preview.py
-├── zip_util.py
-├── static/
-│   ├── index.html
-│   └── style.css
-├── outputs/                  # 自动生成的预览图和CSV
+word_tool_app/
+├── app.py                     # FastAPI 启动入口
+├── process.py                 # 主处理逻辑（裁剪+结构化提取）
+├── convert_doc.py            # Word → PDF 转换逻辑
+├── preview.py                # 裁剪预览图生成（可选）
+├── zip_util.py               # 打包多个 CSV 文件的工具
+├── outputs/                  # 输出目录（CSV、PDF）
+├── uploads/                  # 上传文件暂存目录
+├── static/                   # 前端 HTML/CSS/JS
+│   └── index.html
 ├── Dockerfile
 └── requirements.txt
 ```
 
----
+## 主要文件和功能
+### requirements.txt
+> 列出项目所需的 Python 包。
+```txt
+# pymupdf
+# pandas
+# flask
+#pdfplumber
+#PyMuPDF
 
-## 🐍 三、后端核心代码（FastAPI）
+fastapi
+uvicorn
+PyPDF2
+pdf2image
+jinja2
+python-multipart
+pillow
+docx2pdf
+comtypes
+aiofiles
+python-docx
+pypandoc
+pdfplumber
+```
+### process.py
+> 主处理逻辑，包括 PDF 裁剪和结构化提取。
+> 使用 `PyMuPDF` 库处理 PDF 文件，将内容提取并保存为 CSV 文件。
+```py
+from io import BytesIO
+import os
+import fitz
+import csv
+import re
+from uuid import uuid4
 
-### ✅ 1. `app.py`
+os.makedirs("outputs", exist_ok=True)
 
-```python
+def process_pdf_and_extract(file, top_cm, bottom_cm, filename=None):
+    # 处理传入的 file 参数：可能是 BytesIO、UploadFile 或 str 路径
+    if hasattr(file, "read"):
+        pdf = fitz.open(stream=file.read(), filetype="pdf")
+    elif isinstance(file, (bytes, bytearray)):
+        pdf = fitz.open(stream=file, filetype="pdf")
+    elif isinstance(file, str):
+        pdf = fitz.open(file)  # 是一个 PDF 文件路径
+    else:
+        raise TypeError(f"Unsupported file input type: {type(file)}")
+    if filename is None:
+        filename = f"{uuid4().hex}"
+        
+    filename = filename.rsplit('.', 1)[0]
+    csv_path = f"outputs/{filename}.csv"
+
+    heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')
+    current_heading = None
+    content_dict = {}
+
+    for page in pdf:
+        rect = page.rect
+        top = top_cm * 28.35
+        bottom = bottom_cm * 28.35
+        clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+        blocks = page.get_text("blocks", clip=clip)
+        sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))
+
+        for block in sorted_blocks:
+            text = block[4].strip()
+            if not text:
+                continue
+
+            match = heading_pattern.match(text)
+            if match:
+                current_heading = f"{match.group(1)} {match.group(4).strip()}"
+                content_dict[current_heading] = ""
+            elif current_heading:
+                content_dict[current_heading] += text + " "
+
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        for heading, content in content_dict.items():
+            writer.writerow([heading, content.strip()])
+
+    return csv_path
+
+```
+### app.py
+> FastAPI 应用入口，处理文件上传、预览、处理和下载请求。
+> 配置静态文件服务、CORS 中间件。
+> 路由定义：`/`（主页）、`/preview/`（预览）、`/process_batch/`（批量处理）、`/download/`（下载）。
+```py
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Query
 from typing import List
-import os
+from io import BytesIO
+from convert_doc import convert_doc_to_pdf
 from process import process_pdf_and_extract
 from preview import generate_preview_image
 from zip_util import zip_csvs
+from uuid import uuid4
+import shutil
+import os
+from fastapi.responses import JSONResponse
+from fastapi import Request
+import traceback
+
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -67,111 +169,184 @@ async def root():
         return HTMLResponse(content=f.read(), status_code=200)
 
 @app.post("/preview/")
-async def preview(file: UploadFile = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
-    preview_path = generate_preview_image(file, top_cm, bottom_cm)
+async def preview(
+    file: UploadFile = File(...),
+    top_cm: float = Form(...),
+    bottom_cm: float = Form(...)
+):
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+
+    if ext in ("doc", "docx"):
+        # Word 先转换为 PDF，得到文件路径
+        pdf_path = convert_doc_to_pdf(file)
+        # 直接传路径给 generate_preview_image
+        preview_path = generate_preview_image(pdf_path, top_cm, bottom_cm)
+    else:
+        # 对 PDF 上传文件
+        file_bytes = await file.read()
+        preview_path = generate_preview_image((file_bytes), top_cm, bottom_cm)
+
     return {"preview_path": preview_path}
 
-@app.post("/process_batch/")
-async def process_batch(files: List[UploadFile] = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
-    csv_paths = []
-    for file in files:
-        csv_path = process_pdf_and_extract(file, top_cm, bottom_cm)
-        csv_paths.append(csv_path)
+from io import BytesIO
 
-    if len(csv_paths) == 1:
-        return {"path": csv_paths[0], "is_zip": False}
-    else:
-        zip_path = zip_csvs(csv_paths)
-        return {"path": zip_path, "is_zip": True}
+@app.post("/process_batch/")
+async def process_batch(
+    files: List[UploadFile] = File(...),
+    top_cm: float = Form(...),
+    bottom_cm: float = Form(...)
+):
+    try:
+        csv_paths = []
+
+        for file in files:
+            ext = file.filename.rsplit(".", 1)[-1].lower()
+
+            if ext in ("doc", "docx"):
+                pdf_path = convert_doc_to_pdf(file)
+                with open(pdf_path, "rb") as f:
+                    pdf_bytes = f.read()
+                csv_path = process_pdf_and_extract(BytesIO(pdf_bytes), top_cm, bottom_cm, filename=file.filename)
+            else:
+                file_bytes = await file.read()
+                csv_path = process_pdf_and_extract(BytesIO(file_bytes), top_cm, bottom_cm, filename=file.filename)
+
+            csv_paths.append(csv_path)
+
+        if len(csv_paths) == 1:
+            return JSONResponse(content={"path": csv_paths[0], "is_zip": False})
+        else:
+            zip_path = zip_csvs(csv_paths)
+            return JSONResponse(content={"path": zip_path, "is_zip": True})
+
+    except Exception as e:
+        # 打印错误日志方便调试
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": "文档处理失败", "detail": str(e)}
+        )
+
 
 @app.get("/download/")
-async def download(path: str):
+async def download(path: str = Query(..., alias="path")):
     return FileResponse(path, filename=os.path.basename(path))
 ```
-
----
-
-### ✅ 2. `process.py`
-
-```python
+### convert_doc.py
+> 将 Word 文件转换为 PDF。
+> 使用 `subprocess` 调用 LibreOffice 命令行工具进行转换。
+```py
 import os
-import fitz  # PyMuPDF
-import csv
 import re
-from uuid import uuid4
+import subprocess
+import tempfile
 
-os.makedirs("outputs", exist_ok=True)
+def convert_doc_to_pdf(uploaded_file) -> str:
+    """
+    把上传的 .doc/.docx 文件保存到临时目录，先给它一个“安全”不含空格/特殊字符的名字，
+    再用 LibreOffice 转 PDF，返回转换后的 PDF 路径。
+    """
+    # 1) 清洗文件名（去掉空格、&、/，替换为下划线）
+    raw = os.path.splitext(uploaded_file.filename)[0]
+    safe_stem = re.sub(r'[ \t/&\\\\]+', '_', raw)
+    ext = os.path.splitext(uploaded_file.filename)[1]  # 包含“.”的后缀
 
-def process_pdf_and_extract(file, top_cm, bottom_cm):
-    pdf = fitz.open(stream=file.file.read(), filetype="pdf")
-    filename = file.filename.rsplit('.', 1)[0]
-    csv_path = f"outputs/{uuid4().hex}_{filename}.csv"
+    # 2) 准备临时目录和文件路径
+    tmp_dir = tempfile.mkdtemp()
+    input_path = os.path.join(tmp_dir, safe_stem + ext)
 
-    heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')  # 1 总则、1.1 标题
-    current_heading = None
-    content_dict = {}
+    # 3) 写入上传内容
+    with open(input_path, "wb") as f:
+        f.write(uploaded_file.file.read())
 
-    for page in pdf:
-        rect = page.rect
-        top = top_cm * 28.35
-        bottom = bottom_cm * 28.35
-        clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
-        blocks = page.get_text("blocks", clip=clip)
+    # 4) 调用 LibreOffice CLI 转 PDF
+    subprocess.run([
+        "libreoffice", "--headless",
+        "--convert-to", "pdf",
+        "--outdir", tmp_dir,
+        input_path
+    ], check=True)
 
-        sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))  # 从上到下排序
+    # 5) 输出 PDF 文件路径（同样用 safe_stem）
+    output_pdf = os.path.join(tmp_dir, safe_stem + ".pdf")
+    if not os.path.exists(output_pdf):
+        raise RuntimeError(f"File at path {output_pdf} does not exist.")
+    return output_pdf
+```
+### Dockerfile
+> 定义 Docker 镜像构建步骤。
+> 安装依赖项（包括 LibreOffice）和 Python 包。
+```
+# Stage 2: 构建你的 Python 应用
+FROM python:3.9-slim
 
-        for block in sorted_blocks:
-            text = block[4].strip()
-            if not text:
-                continue
+# 设定工作目录
+WORKDIR /app
 
-            match = heading_pattern.match(text)
-            if match:
-                current_heading = f"{match.group(1)} {match.group(4).strip()}"
-                content_dict[current_heading] = ""
-            elif current_heading:
-                content_dict[current_heading] += text + " "
+# 替换 APT 源
+RUN echo 'deb https://mirrors.xfusion.com/debian/ bookworm main contrib non-free'> /etc/apt/sources.list && \
+    apt-get update && \
+    apt-get install -y libreoffice --fix-missing && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-    # ✅ 写入 CSV：使用 utf-8-sig 编码防止乱码
-    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.writer(f)
-        # writer.writerow(["标题", "内容"])
-        for heading, content in content_dict.items():
-            writer.writerow([heading, content.strip()])
 
-    return csv_path
+COPY . .
+RUN pip install comtypes aiofiles python-docx pypandoc jinja2 PyPDF2 pdf2image pdfplumber fastapi uvicorn pymupdf python-multipart --trusted-host /mirrors.xfusion.com -i https://mirrors.xfusion.com/pypi/simple
+
+
+# 启动服务
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ```
-
----
-
-### ✅ 3. `preview.py`
-
-```python
+### preview.py
+> 生成裁剪预览图。
+> 使用 `PyMuPDF` 库对 PDF 进行裁剪并生成预览图片。
+```py
 import fitz
 from uuid import uuid4
 import os
+from fastapi import UploadFile
 
-def generate_preview_image(file, top_cm, bottom_cm):
+def generate_preview_image(source, top_cm: float, bottom_cm: float) -> str:
+    """
+    source: 
+      - UploadFile      （file.file.read() 可用）
+      - str             （PDF 文件路径）
+      - 文件二进制流对象（.read() 可用，如 open(..., "rb")）
+    返回：生成的预览 PNG 相对路径
+    """
     os.makedirs("outputs", exist_ok=True)
-    pdf = fitz.open(stream=file.file.read(), filetype="pdf")
-    page = pdf.load_page(2)
+
+    # 打开 PDF
+    if isinstance(source, str):
+        pdf = fitz.open(source)
+    elif isinstance(source, UploadFile):
+        data = source.file
+        pdf = fitz.open(stream=data, filetype="pdf")
+    else:
+        # 任何有 .read() 方法的流
+        data = source
+        pdf = fitz.open(stream=data, filetype="pdf")
+
+    # 取第11页，不足11页取第二页
+    page_num = 10 if pdf.page_count > 10 else 1
+    page = pdf.load_page(page_num)
+
     rect = page.rect
     top = top_cm * 28.35
     bottom = bottom_cm * 28.35
     clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
 
     pix = page.get_pixmap(dpi=150, clip=clip)
-    path = f"outputs/{uuid4().hex}_preview.png"
-    pix.save(path)
-    return path
+    preview_filename = f"{uuid4().hex}_preview.png"
+    preview_path = os.path.join("outputs", preview_filename)
+    pix.save(preview_path)
+
+    return preview_path
 ```
-
----
-
-### ✅ 4. `zip_util.py`
-
-```python
+### zip_util.py
+> 打包多个 CSV 文件为 ZIP 压缩包。
+```py
 import zipfile
 from uuid import uuid4
 import os
@@ -183,20 +358,16 @@ def zip_csvs(paths):
             z.write(path, os.path.basename(path))
     return zip_name
 ```
-
----
-
-## 🌐 四、前端文件（静态资源）
-
-### ✅ `static/index.html`
-
+### index.html
+> 前端页面，提供文件上传、裁剪设置、预览和处理功能。
+> 使用 JavaScript 处理文件上传、预览生成和处理请求。
 ```html
 <!DOCTYPE html>
 <html lang="zh">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PDF预处理工具</title>
+  <title>PDF/Word预处理工具</title>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" />
   <style>
@@ -463,16 +634,16 @@ def zip_csvs(paths):
 </head>
 <body>
   <div class="container">
-    <h1><i class="fas fa-file-pdf"></i> PDF预处理工具</h1>
+    <h1><i class="fas fa-file-pdf"></i> PDF/Word预处理工具</h1>
     
     <div class="row">
       <!-- 左侧部分 -->
       <div class="left-panel">
         <div class="section">
-          <h2 class="section-title"><i class="fas fa-cloud-upload-alt"></i> 上传PDF文件</h2>
+          <h2 class="section-title"><i class="fas fa-cloud-upload-alt"></i> 上传PDF/Word文件</h2>
           <div class="file-upload" id="file-upload-area">
-            <input type="file" id="pdf-input" multiple accept=".pdf" hidden>
-            <p><i class="fas fa-upload"></i> 点击或拖放PDF文件到此处</p>
+            <input type="file" id="pdf-input" multiple accept=".pdf,.doc,.docx" hidden>
+            <p><i class="fas fa-upload"></i> 点击或拖放PDF/Word文件到此处</p>
             <p class="text-muted">支持一次性多文件上传</p>
           </div>
           <p id="file-names" class="text-muted"></p>
@@ -504,7 +675,7 @@ def zip_csvs(paths):
               <i class="fas fa-image"></i> 预览剪裁效果
             </button>
             <button class="btn btn-secondary" style="flex: 1;" onclick="processPDFs()">
-              <i class="fas fa-play"></i> 开始处理PDF文件
+              <i class="fas fa-play"></i> 开始处理文件
             </button>
           </div>
         </div>
@@ -515,7 +686,7 @@ def zip_csvs(paths):
       <!-- 右侧部分 -->
       <div class="right-panel">
         <div class="section">
-          <h2 class="section-title"><i class="fas fa-eye"></i> 预览</h2>
+          <h2 class="section-title"><i class="fas fa-eye"></i> 预览(多文件暂不支持)</h2>
           <div id="preview-container">
 
             <img id="preview-img" style="margin-top: 15px;" />
@@ -594,7 +765,7 @@ def zip_csvs(paths):
         .then(res => res.json())
         .then(data => {
           const img = document.getElementById("preview-img");
-          img.src = "/" + data.preview_path;
+          img.src = "/" + encodeURIComponent(data.preview_path);
           img.style.display = "block";
           previewBtn.disabled = false;
           previewBtn.innerHTML = '<i class="fas fa-image"></i> 预览剪裁效果';
@@ -642,10 +813,10 @@ def zip_csvs(paths):
 
       xhr.onload = () => {
         try {
-          const res = JSON.parse(xhr.responseText);
+          const res = JSON.parse(xhr.responseText);  // ❌ 失败点
           document.getElementById("download-links").classList.remove("hidden");
           const csvLink = document.getElementById("csv-link");
-          csvLink.href = `/download/?path=${res.path}`;
+          csvLink.href = `/download/?path=${encodeURIComponent(res.path)}`;
           
           if (res.is_zip) {
             document.getElementById("download-text").textContent = "下载CSV压缩包";
@@ -654,14 +825,16 @@ def zip_csvs(paths):
             document.getElementById("download-text").textContent = "下载CSV文件";
             csvLink.innerHTML = '<i class="fas fa-file-csv"></i> 下载CSV文件';
           }
-          
+
           progressText.textContent = "处理完成！";
           bar.value = 100;
+
         } catch (e) {
+          console.warn("返回内容无法解析为 JSON：", xhr.responseText);
           progressText.textContent = "处理出错！";
           alert("处理过程中出错，请重试");
         }
-        
+
         processBtn.disabled = false;
         processBtn.innerHTML = '<i class="fas fa-play"></i> 开始处理PDF文件';
       };
@@ -679,77 +852,3 @@ def zip_csvs(paths):
 </body>
 </html>
 ```
-
----
-
-### ✅ `static/style.css`（可选）
-
-```css
-
-```
-
----
-
-## 🐳 五、Docker部署
-
-### ✅ `requirements.txt`
-
-```txt
-# pandas
-# flask
-# PyMuPDF
-
-pdfplumber
-fastapi
-uvicorn
-PyPDF2
-pdf2image
-jinja2
-python-multipart
-pillow
-pymupdf
-```
-
-### ✅ `Dockerfile`
-
-```Dockerfile
-
-
-
-FROM python:3.10
-
-WORKDIR /app
-COPY . .
-
-RUN pip install -r requirements.txt
-# RUN pip install jinja2 PyPDF2 pdf2image pdfplumber fastapi uvicorn pymupdf python--multipart --公司源
-
-EXPOSE 8000
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
----
-
-## 🧪 六、一键运行流程
-
-### ✅ 构建并运行容器：
-
-```bash
-docker build -t pdf-tool .
-docker run -d -p 8010:8000 --name pdf_tool_v1 pdf-tool
-```
-
-访问：[http://localhost:8010](http://localhost:8010)
-
----
-
-## ✅ 七、总结
-
-完整的前后端 PDF 剪裁与结构提取工具，支持：
-
-* 单/多文档上传；
-* 裁剪预览；
-* CSV结构提取；
-* 动态下载按钮；
-* 多文档自动压缩；
-* Docker 一键部署。
