@@ -1,5 +1,8 @@
 ```
-Enable tracemalloc to get the object allocation traceback
+TypeError: bad stream: type(stream)=<class 'coroutine'>.
+/usr/local/lib/python3.9/site-packages/uvicorn/protocols/http/h11_impl.py:412: RuntimeWarning: coroutine 'UploadFile.read' was never awaited
+  self.transport.close()
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 ```
 # 7
 请用下面的完整版 `preview.py`（覆盖原文件），它能够兼容三种输入类型：
