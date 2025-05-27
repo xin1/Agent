@@ -1,4 +1,5 @@
 # 10
+```
 <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
   <button class="btn btn-secondary" onclick="prevPreview()"><i class="fas fa-arrow-left"></i></button>
   <div id="preview-container" style="max-width: 600px; max-height: 800px; overflow: auto; border: 1px solid #ddd; padding: 10px;">
@@ -7,7 +8,7 @@
   </div>
   <button class="btn btn-secondary" onclick="nextPreview()"><i class="fas fa-arrow-right"></i></button>
 </div>
-
+```
 
 # 9
 ```
