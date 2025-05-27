@@ -1,3 +1,234 @@
+可以，我们可以完全不用 `file.file.read()` 或 `_io.BufferedReader` 的 `.file` 属性，**也不用传 `file` 对象**。直接通过保存为本地 `.pdf` 或 `.docx` 文件路径来处理，非常清晰可靠。
+
+---
+
+## ✅ 方法：全部转本地文件处理流程（推荐）
+
+### 🌟目标：
+
+* 不再从内存 `UploadFile.file.read()` 读取。
+* 上传后立即保存为 `.pdf`（若是 Word 先转换），然后传本地路径给 `generate_preview_image(path: str, ...)`。
+* `preview.py` 使用 `fitz.open(path)` 读取路径。
+
+---
+
+## ✅ 修改方案一览
+
+### 1. ✅ `preview.py`：只接受 PDF 路径
+
+```python
+# preview.py
+import fitz
+from uuid import uuid4
+import os
+
+def generate_preview_image(pdf_path: str, top_cm: float, bottom_cm: float) -> str:
+    os.makedirs("outputs", exist_ok=True)
+    pdf = fitz.open(pdf_path)  # ← 打开路径
+    page = pdf.load_page(0)
+
+    rect = page.rect
+    top = top_cm * 28.35
+    bottom = bottom_cm * 28.35
+    clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+
+    pix = page.get_pixmap(dpi=150, clip=clip)
+    preview_filename = f"{uuid4().hex}_preview.png"
+    preview_path = os.path.join("outputs", preview_filename)
+    pix.save(preview_path)
+
+    return preview_path
+```
+
+---
+
+### 2. ✅ `app.py`：预览端点使用保存路径
+
+```python
+from fastapi import FastAPI, File, UploadFile, Form
+from convert_doc import convert_doc_to_pdf
+from preview import generate_preview_image
+import os
+import shutil
+from uuid import uuid4
+
+app = FastAPI()
+
+@app.post("/preview/")
+async def preview(file: UploadFile = File(...),
+                  top_cm: float = Form(...),
+                  bottom_cm: float = Form(...)):
+    os.makedirs("uploads", exist_ok=True)
+
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    filename_base = uuid4().hex
+    save_path = os.path.join("uploads", f"{filename_base}.{ext}")
+
+    # 保存上传文件到本地
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # 如果是 Word 文件，转换为 PDF
+    if ext in ("doc", "docx"):
+        pdf_path = convert_doc_to_pdf(save_path)
+    else:
+        pdf_path = save_path  # 已是 PDF
+
+    # 用路径生成预览
+    preview_path = generate_preview_image(pdf_path, top_cm, bottom_cm)
+    return {"preview_path": preview_path}
+```
+
+---
+
+### 3. ✅ `convert_doc.py`：接受文件路径并返回 `.pdf` 路径
+
+```python
+# convert_doc.py
+import subprocess
+import os
+
+def convert_doc_to_pdf(doc_path: str) -> str:
+    output_dir = os.path.dirname(doc_path)
+    subprocess.run([
+        "libreoffice",
+        "--headless",
+        "--convert-to", "pdf",
+        "--outdir", output_dir,
+        doc_path
+    ], check=True)
+
+    base = os.path.splitext(doc_path)[0]
+    return base + ".pdf"
+```
+
+---
+
+## 🔁 说明
+
+* 上传 `.doc/.docx/.pdf` → 保存在 `uploads/`；
+* Word 转 PDF 后直接读取路径，不使用 `file.read()`；
+* 预览使用 `fitz.open(pdf_path)`，避免 `_io.BufferedReader` 错误；
+* 逻辑清晰、易调试、兼容本地部署与 Docker 容器。
+
+---
+
+## ✅ 总结
+
+**完全不用 `file.file` 或 `file.read()`，只操作本地路径文件。**
+这也是服务器或容器部署中最稳定、最不出错的做法。
+
+是否需要我为你整理完整目录结构和文件？或者直接提供 Dockerfile 一起运行测试？
+
+为了实现上传时用 `uuid` 命名中间文件、但最终下载的 CSV 保留原始 Word 或 PDF 文件名的逻辑，这里是完整整合方案：
+
+---
+
+### ✅ 核心改动目标
+
+1. **上传时文件重命名为 UUID**：避免特殊字符、空格干扰；
+2. **内部处理统一使用 UUID 文件名**；
+3. **结果 CSV 使用原始文件名输出**；
+4. **支持 PDF、Word（.doc/.docx）**，中间自动转 PDF。
+
+---
+
+### ✅ 示例整合代码（`app.py` 伪完整形式）
+
+```python
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import FileResponse, JSONResponse
+import os, shutil, uuid, fitz, csv, re
+from convert_doc import convert_doc_to_pdf  # 你已有的转换逻辑
+
+app = FastAPI()
+
+UPLOAD_DIR = "uploads"
+OUTPUT_DIR = "outputs"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def sanitize_filename(name):
+    # 仅保留中文、英文、数字、点和下划线
+    return re.sub(r'[^\u4e00-\u9fa5\w.-]', '_', name)
+
+
+def extract_pdf_to_csv(pdf_path, original_filename, top_cm, bottom_cm):
+    pdf = fitz.open(pdf_path)
+    heading_pattern = re.compile(r'^(\\d+(\\.\\d+)*)(\\s+)(.+)')
+    content_dict = {}
+    current_heading = None
+
+    for page in pdf:
+        rect = page.rect
+        clip = fitz.Rect(rect.x0, rect.y0 + top_cm * 28.35, rect.x1, rect.y1 - bottom_cm * 28.35)
+        blocks = page.get_text("blocks", clip=clip)
+        for b in sorted(blocks, key=lambda b: (b[1], b[0])):
+            text = b[4].strip()
+            if not text:
+                continue
+            m = heading_pattern.match(text)
+            if m:
+                current_heading = f"{m.group(1)} {m.group(4).strip()}"
+                content_dict[current_heading] = ""
+            elif current_heading:
+                content_dict[current_heading] += text + " "
+
+    safe_filename = sanitize_filename(original_filename.rsplit(".", 1)[0]) + ".csv"
+    output_csv_path = os.path.join(OUTPUT_DIR, safe_filename)
+
+    with open(output_csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        for k, v in content_dict.items():
+            writer.writerow([k, v.strip()])
+
+    return output_csv_path
+
+
+@app.post("/preview/")
+async def preview(file: UploadFile = File(...), top_cm: float = Form(...), bottom_cm: float = Form(...)):
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    uuid_filename = uuid.uuid4().hex + "." + ext
+    temp_path = os.path.join(UPLOAD_DIR, uuid_filename)
+
+    with open(temp_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    if ext in ["doc", "docx"]:
+        pdf_path = convert_doc_to_pdf(temp_path)
+    elif ext == "pdf":
+        pdf_path = temp_path
+    else:
+        return JSONResponse(status_code=400, content={"error": "Unsupported file type."})
+
+    try:
+        csv_path = extract_pdf_to_csv(pdf_path, file.filename, top_cm, bottom_cm)
+        return {"csv_filename": os.path.basename(csv_path)}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.get("/download/")
+def download(path: str):
+    full_path = os.path.join(OUTPUT_DIR, path)
+    if not os.path.exists(full_path):
+        return JSONResponse(status_code=404, content={"error": "File not found."})
+    return FileResponse(full_path, filename=path, media_type="text/csv")
+```
+
+---
+
+### ✅ 你需要准备的：
+
+* `convert_doc_to_pdf(path)`：Word ➜ PDF 转换函数（使用 `LibreOffice` CLI 或 `docx2pdf` + `comtypes`）；
+* `uploads/` 与 `outputs/`：自动创建；
+* 可在 `Docker` 中加入 LibreOffice。
+
+---
+
+需要我补充 `convert_doc_to_pdf` 的实现，或帮你自动构建 Dockerfile 也可以。是否继续？
+
 好的，我们换一种更“流式”的办法：**统一把 PDF 数据读成 bytes，再用 `io.BytesIO` 包装**，这样就不依赖 `UploadFile.file`，也不再传递 `BufferedReader`。下面是最小化的改法。
 
 ---
