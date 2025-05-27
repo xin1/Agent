@@ -2,59 +2,64 @@
 ```
 # process.py
 
+# process.py
+
+import os
 import fitz  # PyMuPDF
 import csv
-import os
+import re
 from uuid import uuid4
-from io import BytesIO
 from convert_doc import convert_doc_to_pdf
 
-def process_pdf_and_extract(source, top_cm, bottom_cm, filename=None):
-    # 判断输入来源并打开 PDF
-    if isinstance(source, BytesIO):
-        doc = fitz.open(stream=source.read(), filetype="pdf")
-        if not filename:
-            filename = f"{uuid4().hex}.pdf"
-    elif hasattr(source, "filename"):  # FastAPI UploadFile
-        ext = source.filename.rsplit(".", 1)[-1].lower()
-        if ext in ("doc", "docx"):
-            pdf_path = convert_doc_to_pdf(source)
-            doc = fitz.open(pdf_path)
-            filename = os.path.splitext(os.path.basename(source.filename))[0] + ".pdf"
-        else:
-            doc = fitz.open(stream=source.file.read(), filetype="pdf")
-            filename = source.filename
+os.makedirs("outputs", exist_ok=True)
+
+def process_pdf_and_extract(file, top_cm, bottom_cm):
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+
+    # ✅ 如果是 Word 文件，先转换为 PDF
+    if ext in ("doc", "docx"):
+        pdf_path = convert_doc_to_pdf(file)
+        pdf = fitz.open(pdf_path)
+        filename = os.path.splitext(os.path.basename(file.filename))[0]
     else:
-        raise ValueError("Unsupported file source")
+        # ✅ PDF 直接打开
+        pdf = fitz.open(stream=file.file.read(), filetype="pdf")
+        filename = file.filename.rsplit(".", 1)[0]
 
-    # 计算裁剪区域
-    top_px = top_cm * 28.35
-    bottom_px = bottom_cm * 28.35
+    csv_path = f"outputs/{filename}.csv"
 
-    # 创建输出文件路径
-    base_name = os.path.splitext(os.path.basename(filename))[0]
-    output_dir = "outputs"
-    os.makedirs(output_dir, exist_ok=True)
-    csv_path = os.path.join(output_dir, f"{base_name}.csv")
+    heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')  # e.g. 1 总则、1.1 标题
+    current_heading = None
+    content_dict = {}
 
-    # 写入 CSV（简单提取每页文本作为示例）
-    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+    for page in pdf:
+        rect = page.rect
+        top = top_cm * 28.35
+        bottom = bottom_cm * 28.35
+        clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+        blocks = page.get_text("blocks", clip=clip)
+
+        sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))  # 从上到下排序
+
+        for block in sorted_blocks:
+            text = block[4].strip()
+            if not text:
+                continue
+
+            match = heading_pattern.match(text)
+            if match:
+                current_heading = f"{match.group(1)} {match.group(4).strip()}"
+                content_dict[current_heading] = ""
+            elif current_heading:
+                content_dict[current_heading] += text + " "
+
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
-        writer.writerow(["页码", "内容"])
-
-        for i, page in enumerate(doc):
-            rect = page.rect
-            clipped = fitz.Rect(
-                rect.x0,
-                rect.y0 + top_px,
-                rect.x1,
-                rect.y1 - bottom_px
-            )
-            text = page.get_textbox(clipped).strip()
-            if text:
-                writer.writerow([i + 1, text])
+        for heading, content in content_dict.items():
+            writer.writerow([heading, content.strip()])
 
     return csv_path
+
 
 ```
 ```
