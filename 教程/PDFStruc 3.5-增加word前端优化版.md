@@ -1,3 +1,20 @@
+### 🗂️ 项目目录结构（假设项目名为 `pdf_tool_app/`）
+
+```
+word_tool_app/
+├── app.py                     # FastAPI 启动入口
+├── process.py                 # 主处理逻辑（裁剪+结构化提取）
+├── convert_doc.py            # Word → PDF 转换逻辑
+├── preview.py                # 裁剪预览图生成（可选）
+├── zip_util.py               # 打包多个 CSV 文件的工具
+├── outputs/                  # 输出目录（CSV、PDF）
+├── uploads/                  # 上传文件暂存目录
+├── static/                   # 前端 HTML/CSS/JS
+│   └── index.html
+├── Dockerfile
+└── requirements.txt
+```
+
 ### requirements.txt
 ```txt
 # pymupdf
