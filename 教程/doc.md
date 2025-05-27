@@ -1,3 +1,382 @@
+下面是一个完整的项目目录和关键代码结构，用于构建支持 `.pdf`, `.doc`, `.docx` 文件上传、Word 转 PDF、裁剪正文、结构化提取并导出 CSV 的系统。功能包括：
+
+* 上传支持 PDF / Word 文件；
+* Word 自动转换为 PDF（使用 LibreOffice）；
+* 可配置裁剪顶部/底部；
+* 输出结构化 CSV；
+* 使用 UUID 处理临时文件但最终下载名保留原始文件名；
+* 可部署于 Docker 容器中。
+
+---
+
+### 🗂️ 项目目录结构（假设项目名为 `pdf_tool_app/`）
+
+```
+pdf_tool_app/
+├── app.py                     # FastAPI 启动入口
+├── process.py                 # 主处理逻辑（裁剪+结构化提取）
+├── convert_doc.py            # Word → PDF 转换逻辑
+├── preview.py                # 裁剪预览图生成（可选）
+├── zip_util.py               # 打包多个 CSV 文件的工具
+├── file_utils.py             # 处理文件名、保存上传、生成UUID等
+├── outputs/                  # 输出目录（CSV、PDF）
+├── uploads/                  # 上传文件暂存目录
+├── static/                   # 前端 HTML/CSS/JS
+│   └── index.html
+├── Dockerfile
+└── requirements.txt
+```
+
+---
+
+### 📄 `app.py`（FastAPI 接口示例）
+
+```python
+from fastapi import FastAPI, UploadFile, Form
+from fastapi.responses import FileResponse
+from process import process_pdf_and_extract
+from file_utils import save_upload_file, get_original_name
+import os
+
+app = FastAPI()
+
+@app.post("/process/")
+async def process_file(file: UploadFile, top_cm: float = Form(1), bottom_cm: float = Form(1)):
+    uuid_name, original_name, local_path = await save_upload_file(file)
+
+    # 结构化提取
+    csv_path = process_pdf_and_extract(local_path, top_cm, bottom_cm)
+
+    # 还原原始文件名（加 .csv）
+    download_name = get_original_name(original_name) + ".csv"
+    return FileResponse(csv_path, filename=download_name, media_type='text/csv')
+```
+
+---
+
+### 📄 `file_utils.py`（保存文件、生成 UUID、记录原名）
+
+```python
+import os
+import shutil
+import uuid
+
+UPLOAD_DIR = "uploads/"
+OUTPUT_DIR = "outputs/"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def sanitize_filename(name):
+    return "".join(c if c.isalnum() or c in " ._-()" else "_" for c in name)
+
+async def save_upload_file(file):
+    original_name = os.path.splitext(file.filename)[0]
+    safe_name = sanitize_filename(original_name)
+    ext = os.path.splitext(file.filename)[-1].lower()
+    uid = uuid.uuid4().hex
+
+    filename = f"{uid}_{safe_name}{ext}"
+    file_path = os.path.join(UPLOAD_DIR, filename)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # 统一转为 PDF
+    if ext in (".doc", ".docx"):
+        from convert_doc import convert_doc_to_pdf
+        pdf_path = convert_doc_to_pdf(file_path)
+        return uid, safe_name, pdf_path
+    else:
+        return uid, safe_name, file_path
+
+def get_original_name(safe_name):
+    return safe_name.strip().replace(" ", "_")
+```
+
+---
+
+### 📄 `convert_doc.py`（调用 LibreOffice 转 PDF）
+
+```python
+import subprocess
+import os
+
+def convert_doc_to_pdf(input_path):
+    output_dir = os.path.dirname(input_path)
+    subprocess.run([
+        "libreoffice",
+        "--headless",
+        "--convert-to", "pdf",
+        "--outdir", output_dir,
+        input_path
+    ], check=True)
+
+    base = os.path.splitext(os.path.basename(input_path))[0]
+    return os.path.join(output_dir, base + ".pdf")
+```
+
+---
+
+### 📄 `process.py`（PDF 裁剪与结构提取）
+
+```python
+import fitz  # PyMuPDF
+import csv
+import re
+import os
+from uuid import uuid4
+
+def process_pdf_and_extract(pdf_path, top_cm, bottom_cm):
+    pdf = fitz.open(pdf_path)
+    base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+    csv_path = os.path.join("outputs", f"{uuid4().hex}_{base_name}.csv")
+
+    heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')
+    current_heading = None
+    content_dict = {}
+
+    for page in pdf:
+        rect = page.rect
+        top = top_cm * 28.35
+        bottom = bottom_cm * 28.35
+        clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+        blocks = page.get_text("blocks", clip=clip)
+
+        for b in sorted(blocks, key=lambda b: (b[1], b[0])):
+            text = b[4].strip()
+            if not text:
+                continue
+            m = heading_pattern.match(text)
+            if m:
+                current_heading = f"{m.group(1)} {m.group(4).strip()}"
+                content_dict[current_heading] = ""
+            elif current_heading:
+                content_dict[current_heading] += text + " "
+
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        for h, c in content_dict.items():
+            writer.writerow([h, c.strip()])
+
+    return csv_path
+```
+
+---
+
+### 📄 `Dockerfile` 示例
+
+```dockerfile
+FROM python:3.9-slim
+
+RUN apt-get update && \
+    apt-get install -y libreoffice poppler-utils && \
+    pip install fastapi uvicorn python-multipart PyMuPDF
+
+WORKDIR /app
+COPY . /app
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+---
+
+### 📄 `static/index.html`（可选：用于上传文件的简单页面）
+
+```html
+<!DOCTYPE html>
+<html>
+<head><title>PDF/Word 结构化提取</title></head>
+<body>
+  <h2>上传 PDF 或 Word 文件</h2>
+  <form action="/process/" method="post" enctype="multipart/form-data">
+    文件: <input type="file" name="file"><br>
+    裁剪上边距（cm）: <input type="number" name="top_cm" value="1"><br>
+    裁剪下边距（cm）: <input type="number" name="bottom_cm" value="1"><br>
+    <input type="submit" value="上传并提取">
+  </form>
+</body>
+</html>
+```
+
+---
+
+### ✅ 注意事项
+
+1. LibreOffice 必须已安装，确保 `libreoffice` 命令在容器或主机中可用；
+2. 所有路径中均保留 UUID 前缀确保唯一性，但下载名用原始文件名；
+3. 对中文、空格、特殊字符已进行转义和清洗，避免路径/下载出错；
+4. 你也可以添加 `/preview/` 接口，生成图片预览。
+
+---
+
+如需我将此结构打包为完整项目或 Docker 镜像配置进一步完善，欢迎继续告诉我！
+
+为支持“记录原始文件名并在 CSV 下载时恢复”，同时避免中文、空格或特殊字符造成的处理和下载异常，推荐采用以下完整方案：
+
+---
+
+## ✅ 总体设计目标
+
+1. 上传文件时保存其原始名称（含中文、空格等）。
+2. 中间处理过程使用 `uuid` 命名，避免文件名冲突。
+3. 下载 CSV 时将原始名称还原为下载名，自动加 `.csv` 后缀。
+4. 所有文件路径采用安全编码（避免系统路径错误）。
+
+---
+
+## ✅ 1. 路由入口（FastAPI 示例：`app.py`）
+
+```python
+from fastapi import FastAPI, UploadFile, Form
+from fastapi.responses import FileResponse
+from uuid import uuid4
+import os
+import shutil
+import urllib.parse
+
+from process import process_pdf_and_extract
+
+app = FastAPI()
+
+# 保存上传文件并处理
+@app.post("/process/")
+async def process(file: UploadFile, top_cm: float = Form(0), bottom_cm: float = Form(0)):
+    # 保存上传原始名
+    original_name = file.filename
+    base_name = os.path.splitext(original_name)[0]
+    ext = os.path.splitext(original_name)[-1].lower()
+
+    # 安全处理文件路径（避免特殊字符）
+    safe_id = uuid4().hex
+    safe_dir = f"/tmp/{safe_id}"
+    os.makedirs(safe_dir, exist_ok=True)
+
+    safe_file_path = os.path.join(safe_dir, "input" + ext)
+    with open(safe_file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    # 处理逻辑
+    csv_path = process_pdf_and_extract(safe_file_path, top_cm, bottom_cm)
+
+    # 将 CSV 暂存位置与原始名关联（保存在 dict 或数据库中）
+    final_name = f"{base_name}.csv"
+    return {"download_path": f"/download/?path={urllib.parse.quote(csv_path)}&name={urllib.parse.quote(final_name)}"}
+```
+
+---
+
+## ✅ 2. 下载接口（统一原始名）
+
+```python
+@app.get("/download/")
+def download_csv(path: str, name: str):
+    safe_path = urllib.parse.unquote(path)
+    safe_name = urllib.parse.unquote(name)
+
+    if not os.path.exists(safe_path):
+        return {"error": "文件不存在"}
+
+    # 返回带原始文件名的响应
+    return FileResponse(
+        path=safe_path,
+        filename=safe_name,
+        media_type="text/csv"
+    )
+```
+
+---
+
+## ✅ 3. `process_pdf_and_extract.py`（关键处理逻辑）
+
+```python
+import fitz
+import re
+import csv
+import os
+from uuid import uuid4
+from convert_doc import convert_doc_to_pdf
+
+def process_pdf_and_extract(input_path, top_cm, bottom_cm):
+    ext = os.path.splitext(input_path)[-1].lower()
+
+    if ext in (".doc", ".docx"):
+        input_path = convert_doc_to_pdf(input_path)  # 返回 PDF 路径
+
+    pdf = fitz.open(input_path)
+
+    # 用 uuid 命名处理后的 CSV 文件
+    csv_path = f"/tmp/{uuid4().hex}.csv"
+
+    heading_pattern = re.compile(r'^(\d+(\.\d+)*)(\s+)(.+)')
+    current_heading = None
+    content_dict = {}
+
+    for page in pdf:
+        rect = page.rect
+        top = top_cm * 28.35
+        bottom = bottom_cm * 28.35
+        clip = fitz.Rect(rect.x0, rect.y0 + top, rect.x1, rect.y1 - bottom)
+        blocks = page.get_text("blocks", clip=clip)
+
+        for b in sorted(blocks, key=lambda b: (b[1], b[0])):
+            text = b[4].strip()
+            if not text: continue
+            m = heading_pattern.match(text)
+            if m:
+                current_heading = f"{m.group(1)} {m.group(4).strip()}"
+                content_dict[current_heading] = ""
+            elif current_heading:
+                content_dict[current_heading] += text + " "
+
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        for h, c in content_dict.items():
+            writer.writerow([h, c.strip()])
+
+    return csv_path
+```
+
+---
+
+## ✅ 4. `convert_doc_to_pdf.py`（Word转PDF）
+
+```python
+import subprocess
+import os
+
+def convert_doc_to_pdf(input_path):
+    output_dir = os.path.dirname(input_path)
+    subprocess.run([
+        "libreoffice", "--headless", "--convert-to", "pdf",
+        "--outdir", output_dir, input_path
+    ], check=True)
+    
+    base = os.path.splitext(os.path.basename(input_path))[0]
+    return os.path.join(output_dir, base + ".pdf")
+```
+
+---
+
+## ✅ 5. Dockerfile 补充（LibreOffice）
+
+确保 LibreOffice 安装：
+
+```dockerfile
+RUN apt-get update && apt-get install -y libreoffice
+```
+
+---
+
+## ✅ 推荐优化（可选）
+
+* 上传后立即清洗特殊字符（如 `/ \ ? : *`）或统一用 URL 编码处理。
+* 加入 Redis 或 SQLite 映射 `uuid -> 原始文件名`，支持持久下载名恢复。
+* 自动清理 `/tmp` 中的临时文件。
+
+---
+
+如需我帮助你直接生成完整目录和文件结构，我也可以一键输出部署版本。是否需要？
+
 可以，我们可以完全不用 `file.file.read()` 或 `_io.BufferedReader` 的 `.file` 属性，**也不用传 `file` 对象**。直接通过保存为本地 `.pdf` 或 `.docx` 文件路径来处理，非常清晰可靠。
 
 ---
