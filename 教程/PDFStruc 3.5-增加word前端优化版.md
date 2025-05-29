@@ -124,10 +124,14 @@ def process_pdf_and_extract(file, top_cm, bottom_cm, filename=None):
 
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
+        # writer.writerow(["", ""]) # 写表头
         for heading, content in content_dict.items():
-            writer.writerow([heading, content.strip()])
+            full_text = f"{heading} {content}" # 一列
+            # writer.writerow([heading, content.strip()]) # 两列
+            writer.writerow([full_text]) # 一列
 
     return csv_path
+
 
 ```
 ### app.py
