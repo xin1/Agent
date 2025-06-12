@@ -1,3 +1,4 @@
+target_part property on _Relationship is undefined when target mode is External
 以下是一个完整可部署到 Docker 的项目，用于：
 
 ✅ 上传 Word 文档 → 提取其中图片 → 上传为可公网访问链接 → 替换图片为链接文本 → 返回替换后的 Word 文档下载
