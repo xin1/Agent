@@ -1,3 +1,103 @@
+明白了，你希望在生成的新 Word 文档中，**图片位置替换为公网链接的文字描述**，比如：
+
+```text
+[图片链接] http://10.1.1.1/static/images/xxx.png
+```
+
+而不是仅显示 `[图片]` 或 `[图片链接]`。
+
+---
+
+## ✅ 问题原因
+
+你之前的代码大概率是这样处理图片：
+
+```python
+for run in para.runs:
+    if run._element.xpath('.//pic:pic'):
+        run._element.remove(...)  # 删除图像
+        run.text = "[图片]"        # 没有加链接
+```
+
+但你**没有从 run 中获取图片关联的 relId（rId）**，或图片关系未正确匹配，所以没插入正确链接。
+
+---
+
+## ✅ 正确做法：替换为链接文字形式
+
+我们需要：
+
+1. 提取图片（非 external）
+2. 建立 `{rId: url}` 映射
+3. 在文档中查找嵌入图片（含 rId）
+4. 用图片的链接文字 `http://xxx/xxx.png` 替换 run 内容
+
+---
+
+## ✅ ✅ 修改建议代码（核心部分）
+
+替换 `app.py` 中相关逻辑如下：
+
+```python
+# 替换段落中包含图片的 run
+for para in input_doc.paragraphs:
+    for run in para.runs:
+        drawings = run._element.xpath('.//w:drawing')
+        if drawings:
+            for drawing in drawings:
+                run._element.remove(drawing)
+            # 查找图像的 relId
+            blips = run._element.xpath('.//a:blip')
+            for blip in blips:
+                rId = blip.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
+                if rId in image_map:
+                    run.text = f"[图片链接] {image_map[rId]}"
+                else:
+                    run.text = "[图片]"
+```
+
+确保你**生成了正确的 image\_map**：
+
+```python
+image_map = {}
+
+for rel in input_doc.part._rels.values():
+    if rel.reltype.endswith('/image') and not rel.is_external:
+        blob = rel.target_part.blob
+        ext = os.path.splitext(rel.target_ref)[-1]
+        name = f"{uuid.uuid4()}{ext}"
+        path = os.path.join(IMAGE_FOLDER, name)
+        with open(path, 'wb') as f:
+            f.write(blob)
+        image_map[rel.rId] = f"{request.host_url}static/images/{name}"
+```
+
+---
+
+## ✅ 结果示意
+
+在替换后的 Word 文档中，每张图片位置会变成如下文字：
+
+```
+[图片链接] http://10.1.1.1:8000/static/images/abc123.png
+```
+
+---
+
+## ❗注意事项
+
+* 确保图片存储路径 `static/images/` 是 Flask 的静态路径
+* `request.host_url` 会自动拼出你的公网 IP 和端口（如 `http://10.1.1.1:8000/`）
+
+---
+
+如果你还需要：
+✔ 将链接转成超链接文字
+✔ 保持原图片大小信息
+✔ 转换为 HTML 模板预览
+
+我也可以为你补充。是否继续扩展？
+
 ```
 for rel in doc.part._rels.values():
     if "image" in rel.reltype and not rel.is_external:
