@@ -1,3 +1,136 @@
+以下是为你 **集成完整修复逻辑后的 `app.py` 文件**，确保：
+
+✅ 完整提取所有嵌入图片（跳过不支持格式和外链）
+✅ 将图片插入的 Word 段落中的 run 完整替换为 `[图片链接] http://xxx.png`
+✅ 彻底移除所有图片相关 XML 节点，避免“裂图”、图框残留
+✅ 保持其他内容原样，结构清晰
+
+---
+
+## ✅ 完整 `app.py`（含图片修复与替换链接）
+
+```python
+from flask import Flask, request, render_template, send_from_directory, url_for
+from docx import Document
+import os, uuid
+
+app = Flask(__name__)
+IMAGE_FOLDER = 'static/images'
+OUTPUT_FOLDER = 'processed'
+
+os.makedirs(IMAGE_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    download_link = None
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if file and file.filename.endswith('.docx'):
+            input_doc = Document(file)
+            rels = input_doc.part._rels
+            image_map = {}
+
+            # 提取图片并保存，生成公开链接
+            for rel in rels.values():
+                if rel.reltype.endswith('/image') and not rel.is_external:
+                    try:
+                        ext = os.path.splitext(rel.target_ref)[-1]
+                        if ext.lower() not in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
+                            continue
+                        image_id = str(uuid.uuid4()) + ext
+                        image_path = os.path.join(IMAGE_FOLDER, image_id)
+                        with open(image_path, 'wb') as f:
+                            f.write(rel.target_part.blob)
+                        image_url = f"{request.host_url}static/images/{image_id}"
+                        image_map[rel.rId] = image_url
+                    except Exception as e:
+                        print(f"跳过图像保存错误：{e}")
+
+            # 替换文中图片为公开链接文字，彻底避免裂图
+            for para in input_doc.paragraphs:
+                for run in list(para.runs):  # 使用副本以便安全删除
+                    has_drawing = run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict')
+                    if has_drawing:
+                        # 获取 rId（图片 ID）
+                        blips = run._element.xpath('.//a:blip')
+                        rId = None
+                        for blip in blips:
+                            rId = blip.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
+
+                        # 删除原图 run，创建新 run 插入图片链接文字
+                        para._p.remove(run._element)
+                        if rId and rId in image_map:
+                            para.add_run(f"[图片链接] {image_map[rId]}")
+                        else:
+                            para.add_run("[图片]")
+
+            # 保存新 Word 文档
+            output_filename = f"{uuid.uuid4()}.docx"
+            output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+            input_doc.save(output_path)
+            download_link = url_for('download_file', filename=output_filename, _external=True)
+
+    return render_template('index.html', download_link=download_link)
+
+@app.route('/download/<filename>')
+def download_file(filename):
+    return send_from_directory(OUTPUT_FOLDER, filename, as_attachment=True)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000)
+```
+
+---
+
+## ✅ 同时你需要的简单上传页面 `templates/index.html`
+
+确保你有这个 HTML 文件：
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Word 图片提取替换工具</title>
+</head>
+<body>
+    <h2>上传 Word 文档（.docx）</h2>
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".docx" required>
+        <input type="submit" value="上传并处理">
+    </form>
+    {% if download_link %}
+        <p>处理完成，<a href="{{ download_link }}">点击下载</a></p>
+    {% endif %}
+</body>
+</html>
+```
+
+---
+
+## ✅ 项目结构建议
+
+```
+your_project/
+├── app.py
+├── templates/
+│   └── index.html
+├── static/
+│   └── images/          ← 自动生成
+└── processed/           ← 自动生成
+```
+
+---
+
+## ✅ 下一步建议（可选扩展）
+
+* 🔗 把 `[图片链接] http://...` 换成 **超链接文字**
+* 🗂 支持批量上传 `.docx`
+* 🌐 上传结果页展示所有链接（HTML）
+* 🔐 限制上传大小与类型
+
+需要我继续加这些功能吗？或者给你打包一个 ZIP 项目？
+
 明白了，你希望在生成的新 Word 文档中，**图片位置替换为公网链接的文字描述**，比如：
 
 ```text
