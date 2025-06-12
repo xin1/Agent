@@ -1,3 +1,102 @@
+好的！下面是为你这个 Flask + Word + 图片链接插入应用量身定制的：
+
+---
+
+## ✅ `requirements.txt`
+
+```txt
+flask
+python-docx
+pywin32
+```
+
+⚠ 注意：
+
+* `pywin32` 只能在 Windows 上使用，Docker 容器内一般不能运行 MS Word 的 COM 自动化。
+* 所以你只能在 **Windows 宿主机上运行 Docker，并挂载宿主机 Word 环境**，或者直接在宿主机运行 `python app.py`。
+
+---
+
+## 🚫 Docker 警告（Word COM 不支持 Linux 容器）
+
+由于 `win32com.client` 调用的是 **宿主 Windows 的 Word 程序**，Docker 容器（尤其是 Linux 容器）**无法运行 COM Word 实例**，所以建议使用下面方式：
+
+---
+
+## ✅ 推荐方式 A（无 Docker）：直接在 Windows 运行
+
+```bash
+python -m venv venv
+venv\\Scripts\\activate
+pip install -r requirements.txt
+python app.py
+```
+
+然后访问 [http://localhost:8000](http://localhost:8000)
+
+---
+
+## 🐳（仅供参考）方案 B：Dockerfile（Linux 容器无法运行 Word COM）
+
+如你未来切换为纯 Linux 处理流程（不依赖 Word），可以用以下 Dockerfile：
+
+```Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY . /app
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 8000
+
+CMD ["python", "app.py"]
+```
+
+构建并运行：
+
+```bash
+docker build -t word-image-linker .
+docker run -p 8000:8000 -v "%cd%/static:/app/static" word-image-linker
+```
+
+⚠ 这时 `pywin32` 会报错，因为你不是在 Windows 容器中运行。
+
+---
+
+## ✅ 结论
+
+| 环境         | 支持 Word COM | 推荐方式               |
+| ---------- | ----------- | ------------------ |
+| Windows 主机 | ✅ 是         | 直接运行 Python 脚本     |
+| Linux 容器   | ❌ 不支持       | 改用 LibreOffice 等工具 |
+
+---
+
+### 如你希望改成 Linux 容器部署，也可以告诉我，我会帮你用 `LibreOffice` 或 `Aspose` 替代 Word 提取图片、表格截图和附件。
+
+是否继续？或者确认直接在 Windows 上运行？我可补充自动清理、批处理功能。
+
+```
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Word 图表附件链接提取工具</title>
+</head>
+<body>
+    <h2>上传 Word 文档（.docx）</h2>
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".docx" required>
+        <input type="submit" value="上传并处理">
+    </form>
+    {% if download_link %}
+        <p>处理完成：<a href="{{ download_link }}">下载处理后的 Word 文档</a></p>
+    {% endif %}
+</body>
+</html>
+
+```
 ```
 # app.py
 from flask import Flask, request, render_template, send_from_directory, url_for
