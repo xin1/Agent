@@ -1,3 +1,12 @@
+```
+for rel in doc.part._rels.values():
+    if "image" in rel.reltype and not rel.is_external:
+        try:
+            blob = rel.target_part.blob
+            # 保存图片逻辑...
+        except Exception as e:
+            print(f"跳过无法读取的图片：{e}")
+```
 target_part property on _Relationship is undefined when target mode is External
 以下是一个完整可部署到 Docker 的项目，用于：
 
