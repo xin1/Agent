@@ -1,130 +1,182 @@
-要做一个**将 Word 文档中的图片提取并上传到服务器，生成可访问链接并返回**的工具，你可以分以下几步实现：
+当然可以，**用 Docker 在 Windows 云服务器上部署一个支持上传 Word 图片并提供公网访问链接的服务**是完全可行的，而且非常干净、便于管理。你可以用 **Flask + Docker** 构建这个服务。
 
 ---
 
-### ✅ 一、项目整体流程
+## ✅ 项目目标
 
-1. **前端上传 Word 文件**
-2. **后端解析 Word 文件**
-3. **提取图片并保存到服务器静态目录**
-4. **生成对应的图片访问链接**
-5. **返回图片链接到前端**
+你最终可以通过这样的方式工作：
 
----
+1. 向 Docker 服务上传 `.docx` 文件（POST）
+2. 服务提取图片并保存到容器内静态目录 `/app/static/images/`
+3. 自动返回公网链接：
 
-### ✅ 二、技术选型建议
-
-* 后端：Python（`FastAPI` + `python-docx` + `Pillow`）
-* 图片保存路径：服务器静态目录 `/static/images/`
-* 服务器图片访问链接举例：`http://your-domain.com/static/images/xxx.png`
-* 文件格式支持：`.docx`（`.doc` 不建议，较老，不易解析）
+   ```
+   http://your-server-ip:8000/static/images/xxx.png
+   ```
 
 ---
 
-### ✅ 三、后端核心代码（FastAPI）
+## ✅ 一次性完整方案（Flask + Docker）
 
-#### 📁 目录结构示例：
+### 📁 项目目录结构如下：
 
 ```
-word_image_tool/
-├── main.py
+word_image_server/
+├── app.py
+├── requirements.txt
+├── Dockerfile
 ├── static/
 │   └── images/
 ```
 
-#### 🔧 `main.py`
+---
+
+### 📄 1. `requirements.txt`
+
+```txt
+flask
+python-docx
+pillow
+```
+
+---
+
+### 🧾 2. `app.py`
 
 ```python
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from flask import Flask, request, jsonify, send_from_directory
 from docx import Document
-from PIL import Image
-import io, os, uuid
+import os, uuid
 
-app = FastAPI()
+app = Flask(__name__)
+UPLOAD_FOLDER = 'static/images'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# 静态文件路径挂载
-app.mount("/static", StaticFiles(directory="static"), name="static")
+@app.route('/')
+def home():
+    return 'Word 图片提取服务已启动'
 
-UPLOAD_DIR = "static/images"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+@app.route('/upload', methods=['POST'])
+def upload_word():
+    if 'file' not in request.files:
+        return jsonify({'error': '未提供文件'}), 400
 
-@app.post("/upload/")
-async def upload_docx(file: UploadFile = File(...)):
-    if not file.filename.endswith(".docx"):
-        return JSONResponse(status_code=400, content={"error": "只支持 .docx 文件"})
+    file = request.files['file']
+    if not file.filename.endswith('.docx'):
+        return jsonify({'error': '仅支持 .docx'}), 400
 
-    # 读取文档
-    contents = await file.read()
-    doc = Document(io.BytesIO(contents))
-
-    image_urls = []
+    # 读取 Word 文档
+    doc = Document(file)
     rels = doc.part._rels
+    urls = []
 
-    for rel in rels:
-        rel = rels[rel]
+    for rel in rels.values():
         if "image" in rel.target_ref:
-            image_data = rel.target_part.blob
-            image_id = str(uuid.uuid4()) + ".png"
-            image_path = os.path.join(UPLOAD_DIR, image_id)
-            
-            # 保存图片
-            with open(image_path, "wb") as f:
-                f.write(image_data)
+            img_blob = rel.target_part.blob
+            filename = f"{uuid.uuid4()}.png"
+            save_path = os.path.join(UPLOAD_FOLDER, filename)
+            with open(save_path, 'wb') as f:
+                f.write(img_blob)
+            url = request.host_url + 'static/images/' + filename
+            urls.append(url)
 
-            # 构造 URL
-            url = f"/static/images/{image_id}"
-            image_urls.append(url)
+    return jsonify({'image_urls': urls})
 
-    return {"image_urls": image_urls}
+@app.route('/static/images/<filename>')
+def serve_image(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000)
 ```
 
 ---
 
-### ✅ 四、前端上传文件示例（可用 HTML 表单测试）
+### 🐳 3. `Dockerfile`
 
-```html
-<form action="http://your-domain.com/upload/" method="post" enctype="multipart/form-data">
-  <input type="file" name="file" accept=".docx">
-  <input type="submit" value="上传 Word 文档">
-</form>
+```dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+COPY . /app
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 8000
+
+CMD ["python", "app.py"]
 ```
 
 ---
 
-### ✅ 五、部署建议
+## ✅ 构建并运行 Docker 容器
 
-* 使用 `uvicorn` 运行服务：
+1. 在你服务器上安装 Docker（如果还没装）
+   👉 官方教程：[https://docs.docker.com/desktop/install/windows/](https://docs.docker.com/desktop/install/windows/)
+
+2. 构建镜像：
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
+cd word_image_server
+docker build -t word-image-server .
 ```
 
-* 如果需要生产部署，可配合 **Nginx** 代理并托管 `/static/images/` 目录为静态资源。
+3. 运行容器（映射 8000 端口）：
 
----
-
-### ✅ 六、访问链接说明
-
-最终返回结果示例：
-
-```json
-{
-  "image_urls": [
-    "/static/images/13fd1e0e-1c9b-42a9-befd.png",
-    "/static/images/fc99d9a1-bc91-4e93-930f.png"
-  ]
-}
+```bash
+docker run -d -p 8000:8000 --name word-img word-image-server
 ```
 
-你可以拼接域名：
+4. 测试访问：
+
+* 上传接口（POST `/upload`）；
+* 图片访问路径：
 
 ```
-http://your-domain.com/static/images/13fd1e0e-1c9b-42a9-befd.png
+http://your-server-ip:8000/static/images/xxx.png
 ```
 
 ---
 
-如果你希望我生成完整的部署版结构（带 Docker、前端上传、测试页面），我可以一并打包给你。是否需要？
+## 🌍 让公网能访问（重要）
 
+* **公网访问的前提**：
+
+  * 云服务器要开放 TCP 8000 端口
+  * 安全组允许外部访问 8000
+  * 或将端口映射为 80（生产环境）
+
+例如：
+
+```bash
+docker run -d -p 80:8000 word-image-server
+```
+
+---
+
+## ✅ 测试上传（Postman 或 cURL）
+
+```bash
+curl -X POST -F "file=@your.docx" http://your-server-ip:8000/upload
+```
+
+---
+
+## 🧠 补充建议
+
+* 如果你后续希望上传图片到云存储（如 OSS/S3）而非容器内部，也可以替换保存逻辑；
+* 可以再添加前端网页上传 UI；
+* 若容器重启图片会丢失，可挂载主机卷：
+
+```bash
+docker run -d -p 8000:8000 -v /your/data/path:/app/static/images word-image-server
+```
+
+---
+
+是否需要我为你打包：
+
+* 🔧 Windows 下可直接运行的 Docker Compose？
+* 🧰 Flask+HTML 简单上传页面？
+
+只需告诉我，我可以完整给你生成。
