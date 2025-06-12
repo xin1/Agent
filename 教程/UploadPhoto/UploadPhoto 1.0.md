@@ -1,3 +1,169 @@
+好的！下面我将给你一个完整的 **Flask + HTML 上传页面** 项目，实现：
+
+### ✅ 功能：
+
+* 网页上传 `.docx` 文件
+* 后端提取图片并展示提取的图片链接
+* 图片可直接点击浏览
+
+---
+
+## ✅ 目录结构如下（推荐命名为 `word_image_web/`）：
+
+```
+word_image_web/
+├── app.py                  # Flask 后端
+├── templates/
+│   └── index.html          # 上传表单页面
+├── static/
+│   └── images/             # 存储提取图片
+├── requirements.txt
+├── Dockerfile              # 可选：部署容器
+```
+
+---
+
+### 📄 `requirements.txt`
+
+```txt
+flask
+python-docx
+pillow
+```
+
+---
+
+### 🧾 `app.py`（主程序）
+
+```python
+from flask import Flask, request, render_template, send_from_directory, url_for
+from docx import Document
+import os, uuid
+
+app = Flask(__name__)
+UPLOAD_FOLDER = 'static/images'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    image_urls = []
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if file and file.filename.endswith('.docx'):
+            doc = Document(file)
+            rels = doc.part._rels
+
+            for rel in rels.values():
+                if "image" in rel.target_ref:
+                    img_blob = rel.target_part.blob
+                    filename = f"{uuid.uuid4()}.png"
+                    path = os.path.join(UPLOAD_FOLDER, filename)
+                    with open(path, 'wb') as f:
+                        f.write(img_blob)
+                    image_urls.append(url_for('static', filename=f'images/{filename}', _external=True))
+    return render_template('index.html', image_urls=image_urls)
+
+@app.route('/static/images/<filename>')
+def serve_image(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000)
+```
+
+---
+
+### 📄 `templates/index.html`（上传页面）
+
+```html
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Word 图片提取工具</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: auto; padding: 2em; }
+        h1 { color: #333; }
+        form { margin-bottom: 2em; }
+        .image-preview img { max-width: 200px; margin: 10px; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <h1>上传 Word 文件（.docx）以提取图片</h1>
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".docx" required>
+        <button type="submit">上传并提取</button>
+    </form>
+
+    {% if image_urls %}
+    <h2>提取的图片链接：</h2>
+    <div class="image-preview">
+        {% for url in image_urls %}
+            <a href="{{ url }}" target="_blank"><img src="{{ url }}"></a>
+        {% endfor %}
+    </div>
+    {% endif %}
+</body>
+</html>
+```
+
+---
+
+### 🐳（可选）`Dockerfile`
+
+```dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+COPY . /app
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 8000
+CMD ["python", "app.py"]
+```
+
+---
+
+## ✅ 本地运行方式（无需 Docker）
+
+```bash
+cd word_image_web
+pip install -r requirements.txt
+python app.py
+```
+
+访问：
+
+```
+http://localhost:8000/
+```
+
+---
+
+## ✅ Docker 运行方式（可选）
+
+```bash
+docker build -t word-image-web .
+docker run -d -p 8000:8000 word-image-web
+```
+
+然后访问：
+
+```
+http://your-server-ip:8000/
+```
+
+---
+
+## ✅ 效果示例
+
+> 上传一个 Word 文档 → 页面直接展示提取的图片缩略图 → 点击即可打开查看
+
+---
+
+需要我为这个项目打包 zip 或上传 GitHub 吗？或者希望扩展支持上传多个文件？欢迎继续提需求！
+
 当然可以，**用 Docker 在 Windows 云服务器上部署一个支持上传 Word 图片并提供公网访问链接的服务**是完全可行的，而且非常干净、便于管理。你可以用 **Flask + Docker** 构建这个服务。
 
 ---
