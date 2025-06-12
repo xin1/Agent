@@ -1,3 +1,189 @@
+以下是一个完整可部署到 Docker 的项目，用于：
+
+✅ 上传 Word 文档 → 提取其中图片 → 上传为可公网访问链接 → 替换图片为链接文本 → 返回替换后的 Word 文档下载
+
+---
+
+## ✅ 项目结构（命名为 `word_image_linker`）
+
+```
+word_image_linker/
+├── app.py                  # Flask 应用
+├── requirements.txt        # Python依赖
+├── Dockerfile              # Docker 配置
+├── static/
+│   └── images/             # 存储图片
+├── templates/
+│   └── index.html          # 上传页面
+├── processed/              # 存储处理好的 Word 文件
+```
+
+---
+
+## 📄 `requirements.txt`
+
+```txt
+flask
+python-docx
+pillow
+```
+
+---
+
+## 🧾 `app.py`
+
+```python
+from flask import Flask, request, render_template, send_from_directory, redirect, url_for
+from docx import Document
+import os, uuid
+
+app = Flask(__name__)
+IMAGE_FOLDER = 'static/images'
+OUTPUT_FOLDER = 'processed'
+
+os.makedirs(IMAGE_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    download_link = None
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if file and file.filename.endswith('.docx'):
+            input_doc = Document(file)
+            rels = input_doc.part._rels
+            image_map = {}
+
+            # 提取图片并保存到静态目录，生成公网链接
+            for rel in list(rels.values()):
+                if "image" in rel.target_ref:
+                    blob = rel.target_part.blob
+                    ext = os.path.splitext(rel.target_ref)[-1]
+                    img_name = f"{uuid.uuid4()}{ext}"
+                    img_path = os.path.join(IMAGE_FOLDER, img_name)
+                    with open(img_path, 'wb') as f:
+                        f.write(blob)
+                    image_map[rel.rId] = request.host_url + 'static/images/' + img_name
+
+            # 替换文档中图片为对应链接文本
+            for para in input_doc.paragraphs:
+                for run in para.runs:
+                    if run._element.xpath('.//pic:pic'):
+                        for drawing in run._element.xpath('.//w:drawing'):
+                            run._element.remove(drawing)
+                        rid = run._r.rId if hasattr(run._r, 'rId') else None
+                        if rid in image_map:
+                            run.text = f"[图片链接] {image_map[rid]}"
+                        else:
+                            run.text = "[图片]"
+
+            # 保存新文档
+            output_filename = f"{uuid.uuid4()}.docx"
+            output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+            input_doc.save(output_path)
+            download_link = url_for('download_file', filename=output_filename, _external=True)
+
+    return render_template('index.html', download_link=download_link)
+
+@app.route('/download/<filename>')
+def download_file(filename):
+    return send_from_directory(OUTPUT_FOLDER, filename, as_attachment=True)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000)
+```
+
+---
+
+## 🧾 `templates/index.html`
+
+```html
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Word 图片替换工具</title>
+</head>
+<body style="font-family: Arial; max-width: 800px; margin: auto; padding: 2em;">
+    <h1>上传 Word 文件（.docx）</h1>
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".docx" required>
+        <button type="submit">上传并处理</button>
+    </form>
+
+    {% if download_link %}
+        <h2>✅ 处理完成！点击下载：</h2>
+        <a href="{{ download_link }}">{{ download_link }}</a>
+    {% endif %}
+</body>
+</html>
+```
+
+---
+
+## 🐳 `Dockerfile`
+
+```dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+COPY . /app
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 8000
+CMD ["python", "app.py"]
+```
+
+---
+
+## ✅ 构建与运行（Docker 命令）
+
+```bash
+# 1. 构建镜像
+docker build -t word-image-linker .
+
+# 2. 运行容器（挂载 8000 端口）
+docker run -d -p 8000:8000 --name linker word-image-linker
+```
+
+---
+
+## ✅ 访问地址
+
+在浏览器打开：
+
+```
+http://<你的服务器公网IP>:8000/
+```
+
+你可以上传 `.docx` 文件，处理后下载新的 `.docx`，其中图片已替换为公网链接。
+
+---
+
+## 🌍 开放公网访问（重要）
+
+请确保你的云服务器：
+
+* 已开放端口 `8000`（安全组 + 防火墙）
+* 或用 `nginx` 映射为 80 或 443（https）
+
+---
+
+## ✅ 下步建议（可选）
+
+* 支持 OSS/S3 上传替代本地静态目录
+* 多文档批量上传
+* 图片替换为 `[![图片](url)](url)` 形式等
+
+是否需要我帮你：
+
+* 打包成 ZIP？
+* 推送 GitHub？
+* 添加批量上传支持？
+
+告诉我即可继续补充。
+
 明白了，你想做的是一个更智能的功能：
 
 ---
